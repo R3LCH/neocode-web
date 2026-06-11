@@ -79,6 +79,14 @@ export function PairingScreen({ onPaired }: Props) {
         onPaired(client);
         return;
       }
+      // HTTPS pages (Telegram requires HTTPS) can only open wss:// — plain
+      // ws:// to a LAN IP is blocked by the browser as mixed content.
+      if (window.location.protocol === "https:") {
+        setError(
+          "The QR has no tunnel URL yet. In the IDE (Settings → Remote), wait until the status shows “Off-LAN: ready”, click Regenerate, then scan the new QR.",
+        );
+        return;
+      }
       if (!p.host) {
         setError("QR missing tunnel URL — enable Off-LAN in IDE or use same WiFi host");
         return;

@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/bridge/client.ts","./src/chat/chatpanel.tsx","./src/editor/editorpanel.tsx","./src/files/filespanel.tsx","./src/pairing/pairingscreen.tsx","./src/preview/previewpanel.tsx","./src/remote/remotepanel.tsx","./src/settings/settingspanel.tsx","../protocol/schema.ts"],"version":"5.7.3"}

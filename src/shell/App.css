@@ -1,0 +1,417 @@
+:root {
+  --bg: var(--tg-theme-bg-color, #141418);
+  --bg-secondary: var(--tg-theme-secondary-bg-color, #1a1a22);
+  --surface: var(--tg-theme-section-bg-color, #1e1e26);
+  --text: var(--tg-theme-text-color, #ececf0);
+  --text-muted: var(--tg-theme-hint-color, #8d8d96);
+  --accent: var(--tg-theme-button-color, #3d5afe);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --link: var(--tg-theme-link-color, #7aa2f7);
+  --danger: #e5484d;
+  --border: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.tabs button {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.tabs button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+input,
+textarea,
+select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 0.95rem;
+}
+
+textarea {
+  resize: none;
+}
+
+button {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 500;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--link);
+  border: 1px solid var(--border);
+}
+
+button.ghost.danger {
+  color: var(--danger);
+}
+
+/* ---------- chat ---------- */
+
+.chat-panel {
+  gap: 8px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.chat-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.thread-status {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+
+.thread-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  max-height: 45dvh;
+  overflow: auto;
+}
+
+.thread-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 10px;
+  padding: 6px;
+}
+
+.thread-row.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.thread-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.thread-title span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.thread-actions .ghost {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.archived-toggle {
+  align-self: flex-start;
+  font-size: 0.8rem;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.msg {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 10px 12px;
+  max-width: 92%;
+}
+
+.msg pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+
+.msg-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface));
+  border-bottom-right-radius: 4px;
+}
+
+.msg-agent {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+.msg.streaming {
+  opacity: 0.85;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding-top: 4px;
+}
+
+.mode-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  text-transform: capitalize;
+}
+
+.chip.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+
+.composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer-row textarea {
+  flex: 1;
+}
+
+.composer-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.approvals {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.approvals h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.approval-card pre {
+  max-height: 20dvh;
+  overflow: auto;
+  font-size: 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+/* ---------- settings ---------- */
+
+.settings-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-group h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-path {
+  word-break: break-all;
+}
+
+/* ---------- editor / preview / remote ---------- */
+
+.grid-view {
+  display: grid;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: auto;
+  background: #0a0a0e;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.cell {
+  white-space: pre;
+}
+
+.cell.cursor {
+  background: #33467a;
+}
+
+.zoom-view {
+  font-size: 1.25rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0a0a0e;
+  padding: 12px;
+  border-radius: 8px;
+  min-height: 40vh;
+}
+
+.preview-text {
+  font-size: 0.75rem;
+  max-height: 40vh;
+  overflow: auto;
+  background: #0a0a0e;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.vnc-container {
+  min-height: 50vh;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mode,
+.view-badge {
+  font-size: 0.75rem;
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+}

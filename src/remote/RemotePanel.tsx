@@ -10,7 +10,6 @@ export function RemotePanel({ client }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
   const [status, setStatus] = useState<RemoteStatus | null>(null);
-  const [control, setControl] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -26,8 +25,18 @@ export function RemotePanel({ client }: Props) {
       setError("Not paired");
       return;
     }
-    if (control) {
+    // Always boot the desktop VNC server — `remote.enable` is what starts it.
+    // The control checkbox only decides whether we forward input (viewOnly),
+    // not whether the screen share runs, so it must not gate this call.
+    try {
       await client.call("remote.enable");
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Desktop refused screen share (turn on Screen share on the desktop)",
+      );
+      return;
     }
     const container = containerRef.current;
     if (!container) return;
@@ -39,8 +48,14 @@ export function RemotePanel({ client }: Props) {
       rfb.scaleViewport = true;
       rfb.resizeSession = false;
       rfbRef.current = rfb;
-      rfb.addEventListener("disconnect", () => {
+      rfb.addEventListener("securityfailure", (ev: { detail?: { reason?: string } }) => {
+        setError(ev.detail?.reason || "VNC authentication failed");
+      });
+      rfb.addEventListener("disconnect", (ev: { detail?: { clean?: boolean } }) => {
         rfbRef.current = null;
+        if (ev.detail?.clean === false) {
+          setError("Screen disconnected — is the desktop screen share on?");
+        }
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "VNC failed");
@@ -56,14 +71,6 @@ export function RemotePanel({ client }: Props) {
   return (
     <div className="panel remote-panel">
       <div className="row">
-        <label>
-          <input
-            type="checkbox"
-            checked={control}
-            onChange={(e) => setControl(e.target.checked)}
-          />
-          Control mode (desktop must allow)
-        </label>
         <button type="button" onClick={startVnc}>
           Start desktop
         </button>

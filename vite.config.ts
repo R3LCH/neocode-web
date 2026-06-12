@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@protocol": path.resolve(__dirname, "../protocol"),
+      "@protocol": path.resolve(__dirname, "./src/protocol"),
     },
   },
   server: {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import WebApp from "@twa-dev/sdk";
 import { BridgeClient } from "../bridge/client";
 import type { BridgeClient as BridgeClientType } from "../bridge/client";
@@ -18,8 +18,19 @@ type Props = {
 };
 
 function parseQr(text: string): QrPayload | null {
+  let raw = text.trim();
+  // URL-format QR (the bridge serves this app over LAN http):
+  // http://<ip>:9473/#pair=<percent-encoded JSON>
+  const pairIdx = raw.indexOf("#pair=");
+  if (pairIdx !== -1) {
+    try {
+      raw = decodeURIComponent(raw.slice(pairIdx + "#pair=".length));
+    } catch {
+      return null;
+    }
+  }
   try {
-    const data = JSON.parse(text) as QrPayload;
+    const data = JSON.parse(raw) as QrPayload;
     if (!data.token) return null;
     return data;
   } catch {
@@ -37,7 +48,10 @@ const canScanInTelegram = (() => {
 })();
 
 export function PairingScreen({ onPaired }: Props) {
-  const [host, setHost] = useState("");
+  // Served from the bridge itself (LAN http) the right host is simply ours.
+  const [host, setHost] = useState(
+    window.location.protocol === "http:" ? window.location.hostname : "",
+  );
   const [port, setPort] = useState("9473");
   const [token, setToken] = useState("");
   const [bridgeWss, setBridgeWss] = useState("");
@@ -106,6 +120,28 @@ export function PairingScreen({ onPaired }: Props) {
     }
   };
 
+  // Zero-tap flow: when the bridge serves this app over LAN http, the QR is a
+  // URL carrying the pairing payload in its fragment — opening it lands here
+  // and we pair immediately. The fragment never leaves the browser; we still
+  // scrub the one-time token from the address bar right away.
+  const autoPaired = useRef(false);
+  useEffect(() => {
+    if (autoPaired.current) return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#pair=")) return;
+    autoPaired.current = true;
+    const data = applyQr(hash);
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!data) return;
+    void connectWith({
+      bridgeWss: (data.bridge_wss ?? "").trim(),
+      host: (data.host ?? "").trim() || window.location.hostname,
+      port: Number(data.port) || 9473,
+      token: data.token.trim(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // One-tap flow: Telegram's native scanner reads the IDE pairing QR and we
   // connect immediately, no typing or pasting.
   const scanWithTelegram = () => {
@@ -159,7 +195,7 @@ export function PairingScreen({ onPaired }: Props) {
       <details open={!canScanInTelegram}>
         <summary className="hint">Manual pairing</summary>
         <textarea
-          placeholder="Paste QR JSON from IDE, or scan with your camera app"
+          placeholder="Paste QR contents (URL or JSON) from IDE, or scan with your camera app"
           value={qrRaw}
           onChange={(e) => setQrRaw(e.target.value)}
           onBlur={() => applyQr()}

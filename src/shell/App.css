@@ -414,6 +414,9 @@ button.ghost.danger {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* We drive remote input from pointer events here, so stop the browser from
+     hijacking touches for scroll/zoom. */
+  touch-action: none;
 }
 
 /* Transform wrapper for pinch-zoom / pan; origin top-left so the gesture math
@@ -422,7 +425,9 @@ button.ghost.danger {
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
-  touch-action: none;
+  /* All input is handled on .vnc-stage and forwarded to noVNC as framebuffer
+     coordinates, so the canvas itself must not capture pointer events. */
+  pointer-events: none;
 }
 
 .vnc-container {

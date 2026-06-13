@@ -16,6 +16,7 @@ export function RemotePanel({ client }: Props) {
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [keyboardActive, setKeyboardActive] = useState(false);
+  const [rotated, setRotated] = useState(false);
   const [mods, setMods] = useState<number[]>([]);
 
   // Keep the screen above the on-screen keyboard: the visual viewport shrinks
@@ -69,7 +70,9 @@ export function RemotePanel({ client }: Props) {
     // panel, right edge → bottom) and fill the stage. We give the element a
     // landscape-shaped size (stage height × stage width) so noVNC's
     // scaleViewport fits the whole desktop into it, then rotate it to occupy
-    // the portrait stage. Clicks are disabled while rotated — keyboard drives.
+    // the portrait stage. This is the default view; clicks are disabled here
+    // because rotation breaks the tap→pixel mapping — open the keyboard to drop
+    // to landscape where taps drive the mouse.
     const applyRotation = () => {
       const sw = stage.clientWidth;
       const sh = stage.clientHeight;
@@ -160,10 +163,11 @@ export function RemotePanel({ client }: Props) {
     };
   }, [connected]);
 
-  // Rotate to vertical only while the keyboard is up (and connected).
+  // Rotation is a manual toggle: default is normal landscape (taps = mouse),
+  // the Rotate button fills the panel vertically (view-only — see setRotatedRef).
   useEffect(() => {
-    setRotatedRef.current(keyboardActive && connected);
-  }, [keyboardActive, connected]);
+    setRotatedRef.current(connected && rotated);
+  }, [rotated, connected]);
 
   const startVnc = async () => {
     setError("");
@@ -206,6 +210,7 @@ export function RemotePanel({ client }: Props) {
         rfbRef.current = null;
         setConnected(false);
         setMods([]);
+        setRotated(false);
         if (!handshaken) {
           setError(
             "Connected to the desktop but no screen came through. On the desktop, stop the TightVNC service or run the app as administrator, then retry.",
@@ -224,6 +229,7 @@ export function RemotePanel({ client }: Props) {
     rfbRef.current = null;
     setConnected(false);
     setMods([]);
+    setRotated(false);
     await client.call("remote.disable").catch(() => undefined);
   };
 
@@ -303,6 +309,14 @@ export function RemotePanel({ client }: Props) {
                 title="Keyboard"
               >
                 ⌨
+              </button>
+              <button
+                type="button"
+                className={rotated ? "active" : ""}
+                onClick={() => setRotated((r) => !r)}
+                title="Rotate to fill vertically"
+              >
+                ⟳
               </button>
               <button type="button" onClick={() => resetViewRef.current()} title="Reset zoom">
                 Fit

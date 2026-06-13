@@ -48,12 +48,25 @@ export function RemotePanel({ client }: Props) {
       rfb.scaleViewport = true;
       rfb.resizeSession = false;
       rfbRef.current = rfb;
+      let handshaken = false;
+      setError("Connecting to desktop…");
+      rfb.addEventListener("connect", () => {
+        handshaken = true;
+        setError("");
+      });
       rfb.addEventListener("securityfailure", (ev: { detail?: { reason?: string } }) => {
         setError(ev.detail?.reason || "VNC authentication failed");
       });
       rfb.addEventListener("disconnect", (ev: { detail?: { clean?: boolean } }) => {
         rfbRef.current = null;
-        if (ev.detail?.clean === false) {
+        if (!handshaken) {
+          // The socket opened but the RFB handshake never completed — the
+          // desktop VNC server accepted the connection but sent no screen
+          // (commonly TightVNC rejecting loopback, or a stale server).
+          setError(
+            "Connected to the desktop but no screen came through. On the desktop, stop the TightVNC service or run the app as administrator, then retry.",
+          );
+        } else if (ev.detail?.clean === false) {
           setError("Screen disconnected — is the desktop screen share on?");
         }
       });

@@ -415,12 +415,49 @@ button.ghost.danger {
   min-height: 0;
 }
 
+/* Transform wrapper for pinch-zoom / pan; origin top-left so the gesture math
+   in RemotePanel stays simple. noVNC's canvas lives inside .vnc-container. */
+.vnc-zoom {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  touch-action: none;
+}
+
 .vnc-container {
   position: absolute;
   inset: 0;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
+}
+
+/* Modifier / special-key bar, bottom-centered above the keyboard. */
+.vnc-keys {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 5;
+}
+
+.vnc-keys button {
+  min-width: 44px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.vnc-keys button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 /* Floating controls, top-right, over the screen once connected. */
@@ -442,6 +479,12 @@ button.ghost.danger {
   border: 1px solid var(--border);
   border-radius: 8px;
   backdrop-filter: blur(6px);
+}
+
+.vnc-overlay button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 /* "Start desktop" centered before a session exists. */

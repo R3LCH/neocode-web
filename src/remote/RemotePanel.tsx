@@ -14,6 +14,7 @@ export function RemotePanel({ client }: Props) {
   const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
   const resetViewRef = useRef<() => void>(() => undefined);
   const setRotatedRef = useRef<(on: boolean) => void>(() => undefined);
+  const wasRotatedRef = useRef(false); // restore vertical after the keyboard closes
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [keyboardActive, setKeyboardActive] = useState(false);
@@ -57,14 +58,19 @@ export function RemotePanel({ client }: Props) {
     const WHEEL_UP = 8;
     const WHEEL_DOWN = 16;
     const DRAG_PX = 10;
-    const SCROLL_PX = 28; // two-finger travel per wheel notch
+    const SCROLL_PX = 28; // three-finger travel per wheel notch
     const HOLD_MS = 500;
 
-    let s = 1; // view scale (non-rotated)
+    // View transform = a screen-space zoom/pan layer (s, tx, ty) applied on top
+    // of a base() mapping that is identity when horizontal and a rotate-to-fill
+    // when vertical. Keeping the zoom layer identical in both orientations means
+    // the same pinch math, the same CSS transform, and the same click mapping
+    // work whether or not we're rotated.
+    let s = 1;
     let tx = 0;
     let ty = 0;
     let rotated = false;
-    let k = 1; // rotation fill scale
+    let k = 1; // rotation fill scale (vertical only)
     let curFb: { x: number; y: number } | null = null; // last mapped pixel
 
     const metrics = () => {
@@ -73,8 +79,22 @@ export function RemotePanel({ client }: Props) {
       return { dispW: cv.clientWidth, dispH: cv.clientHeight };
     };
 
+    // Stage-local point → base-space (the rotate-to-fill, without the zoom layer).
+    const baseForward = (lx: number, ly: number) => {
+      if (!rotated) return { x: lx, y: ly };
+      const cx = stage.clientWidth / 2;
+      const cy = stage.clientHeight / 2;
+      return { x: cx - k * (ly - cy), y: cy + k * (lx - cx) };
+    };
+    const baseInverse = (bx: number, by: number) => {
+      if (!rotated) return { x: bx, y: by };
+      const cx = stage.clientWidth / 2;
+      const cy = stage.clientHeight / 2;
+      return { x: cx + (by - cy) / k, y: cy - (bx - cx) / k };
+    };
+
     // Draw our cursor ring at the screen position of the last mapped pixel,
-    // applying the same forward transform so it tracks pans/zooms/rotation.
+    // applying the full forward transform so it tracks pans/zooms/rotation.
     const placeCursor = () => {
       if (!cursorEl) return;
       const m = metrics();
@@ -82,32 +102,25 @@ export function RemotePanel({ client }: Props) {
         cursorEl.style.opacity = "0";
         return;
       }
-      const sw = stage.clientWidth;
-      const sh = stage.clientHeight;
-      const lx = curFb.x + (sw - m.dispW) / 2;
-      const ly = curFb.y + (sh - m.dispH) / 2;
-      let px: number;
-      let py: number;
-      if (rotated) {
-        const cx = sw / 2;
-        const cy = sh / 2;
-        px = cx - k * (ly - cy);
-        py = cy + k * (lx - cx);
-      } else {
-        px = tx + s * lx;
-        py = ty + s * ly;
-      }
-      cursorEl.style.left = `${px}px`;
-      cursorEl.style.top = `${py}px`;
+      const lx = curFb.x + (stage.clientWidth - m.dispW) / 2;
+      const ly = curFb.y + (stage.clientHeight - m.dispH) / 2;
+      const b = baseForward(lx, ly);
+      cursorEl.style.left = `${tx + s * b.x}px`;
+      cursorEl.style.top = `${ty + s * b.y}px`;
       cursorEl.style.opacity = "1";
     };
 
     const applyTransform = () => {
+      zoom.style.transformOrigin = "0 0";
       if (rotated) {
-        zoom.style.transformOrigin = "center center";
-        zoom.style.transform = `rotate(90deg) scale(${k})`;
+        const cx = stage.clientWidth / 2;
+        const cy = stage.clientHeight / 2;
+        // zoom layer ∘ (rotate+fill about the stage centre)
+        zoom.style.transform =
+          `translate(${tx}px, ${ty}px) scale(${s}) ` +
+          `translate(${cx}px, ${cy}px) rotate(90deg) scale(${k}) ` +
+          `translate(${-cx}px, ${-cy}px)`;
       } else {
-        zoom.style.transformOrigin = "0 0";
         zoom.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
       }
       if (curFb === null) {
@@ -118,28 +131,14 @@ export function RemotePanel({ client }: Props) {
     };
 
     // Screen point → noVNC element-space coords (framebuffer × fit-scale).
-    // Invert our CSS transform, then offset by the letterboxed canvas position.
+    // Invert the zoom layer, invert base(), then drop the letterbox offset.
     const toElement = (clientX: number, clientY: number) => {
       const m = metrics();
       if (!m) return null;
       const rect = stage.getBoundingClientRect();
-      const sw = stage.clientWidth;
-      const sh = stage.clientHeight;
-      const px = clientX - rect.left;
-      const py = clientY - rect.top;
-      let lx: number;
-      let ly: number;
-      if (rotated) {
-        const cx = sw / 2;
-        const cy = sh / 2;
-        lx = cx + (py - cy) / k;
-        ly = cy - (px - cx) / k;
-      } else {
-        lx = (px - tx) / s;
-        ly = (py - ty) / s;
-      }
-      const x = lx - (sw - m.dispW) / 2;
-      const y = ly - (sh - m.dispH) / 2;
+      const b = baseInverse((clientX - rect.left - tx) / s, (clientY - rect.top - ty) / s);
+      const x = b.x - (stage.clientWidth - m.dispW) / 2;
+      const y = b.y - (stage.clientHeight - m.dispH) / 2;
       return {
         x: Math.max(0, Math.min(m.dispW - 1, x)),
         y: Math.max(0, Math.min(m.dispH - 1, y)),
@@ -185,7 +184,8 @@ export function RemotePanel({ client }: Props) {
       s = 1;
       tx = 0;
       ty = 0;
-      applyTransform();
+      if (rotated) applyRotation();
+      else applyTransform();
     };
 
     const onResize = () => {
@@ -196,8 +196,11 @@ export function RemotePanel({ client }: Props) {
     window.visualViewport?.addEventListener("resize", onResize);
 
     // ---- pointer handling ----
+    //   1 finger  → left mouse (tap = click, hold = right-click, drag = drag)
+    //   2 fingers → pinch-zoom + pan
+    //   3 fingers → vertical swipe = wheel scroll
     const pts = new Map<number, { x: number; y: number }>();
-    let multi = false; // two fingers have touched this gesture
+    let maxPts = 0; // most fingers seen this gesture (gates click/zoom/scroll)
     // one-finger state machine
     let start = { x: 0, y: 0 };
     let last = { x: 0, y: 0 };
@@ -205,19 +208,28 @@ export function RemotePanel({ client }: Props) {
     let rightDone = false; // long-press already fired a right-click
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
     let lastMove = 0;
-    // two-finger gesture state
+    // pinch (2-finger) baseline
     let gDist = 0;
     let gScale = 1;
     let gTx = 0;
     let gTy = 0;
     let gMidX = 0;
     let gMidY = 0;
+    // scroll (3-finger) baseline
     let prevMy = 0;
     let scrollAcc = 0;
 
-    const two = () => [...pts.values()];
     const spanOf = (a: { x: number; y: number }[]) =>
       Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+    const midOf = (a: { x: number; y: number }[]) => {
+      let x = 0;
+      let y = 0;
+      for (const p of a) {
+        x += p.x;
+        y += p.y;
+      }
+      return { x: x / a.length, y: y / a.length };
+    };
     const clearHold = () => {
       if (holdTimer) {
         clearTimeout(holdTimer);
@@ -225,11 +237,35 @@ export function RemotePanel({ client }: Props) {
       }
     };
 
+    // (Re)seed the baseline for whatever multi-finger gesture is now active, so
+    // adding/lifting a finger (1↔2↔3) doesn't make the view jump.
+    const syncGesture = () => {
+      const a = [...pts.values()];
+      const rect = stage.getBoundingClientRect();
+      if (pts.size === 2) {
+        gDist = spanOf(a) || 1;
+        gScale = s;
+        gTx = tx;
+        gTy = ty;
+        gMidX = (a[0].x + a[1].x) / 2 - rect.left;
+        gMidY = (a[0].y + a[1].y) / 2 - rect.top;
+      } else if (pts.size === 3) {
+        prevMy = midOf(a).y;
+        scrollAcc = 0;
+      }
+    };
+
     const onDown = (e: PointerEvent) => {
       if (e.target !== stage) return; // ignore taps on overlay buttons
+      // Suppress the compatibility mouse event a touch generates; otherwise it
+      // blurs the keyboard textarea, closing the soft keyboard on every tap. We
+      // own all input here, so we lose nothing by preventing it — and the
+      // desktop stays usable while the keyboard is open.
+      e.preventDefault();
       stage.setPointerCapture(e.pointerId);
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 1 && !multi) {
+      maxPts = Math.max(maxPts, pts.size);
+      if (pts.size === 1 && maxPts === 1) {
         start = { x: e.clientX, y: e.clientY };
         last = start;
         engaged = false;
@@ -237,26 +273,16 @@ export function RemotePanel({ client }: Props) {
         sendMouse(e.clientX, e.clientY, 0); // position cursor (no button yet)
         clearHold();
         holdTimer = setTimeout(() => {
-          if (!engaged && !multi && pts.size === 1) {
+          if (!engaged && maxPts === 1 && pts.size === 1) {
             wheel(start.x, start.y, RIGHT); // long-press = right click
             rightDone = true;
           }
         }, HOLD_MS);
-      } else if (pts.size === 2) {
-        multi = true;
+      } else {
         clearHold();
         if (engaged) sendMouse(last.x, last.y, 0); // release a started drag
         engaged = false;
-        const a = two();
-        const rect = stage.getBoundingClientRect();
-        gDist = spanOf(a);
-        gScale = s;
-        gTx = tx;
-        gTy = ty;
-        gMidX = (a[0].x + a[1].x) / 2 - rect.left;
-        gMidY = (a[0].y + a[1].y) / 2 - rect.top;
-        prevMy = gMidY;
-        scrollAcc = 0;
+        syncGesture();
       }
     };
 
@@ -264,7 +290,7 @@ export function RemotePanel({ client }: Props) {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-      if (pts.size === 1 && !multi) {
+      if (pts.size === 1 && maxPts === 1) {
         last = { x: e.clientX, y: e.clientY };
         if (rightDone) return;
         if (!engaged) {
@@ -286,40 +312,38 @@ export function RemotePanel({ client }: Props) {
       }
 
       if (pts.size === 2) {
-        const a = two();
+        const a = [...pts.values()];
         const rect = stage.getBoundingClientRect();
-        const midClientX = (a[0].x + a[1].x) / 2;
-        const midClientY = (a[0].y + a[1].y) / 2;
-        const mx = midClientX - rect.left;
-        const my = midClientY - rect.top;
+        const mx = (a[0].x + a[1].x) / 2 - rect.left;
+        const my = (a[0].y + a[1].y) / 2 - rect.top;
         const ns = Math.min(8, Math.max(1, (gScale * spanOf(a)) / gDist));
-        if (!rotated && (ns > 1.001 || s > 1)) {
-          // pinch-zoom + pan
-          if (ns <= 1.001) {
-            s = 1;
-            tx = 0;
-            ty = 0;
-          } else {
-            const cx = (gMidX - gTx) / gScale;
-            const cy = (gMidY - gTy) / gScale;
-            s = ns;
-            tx = mx - ns * cx;
-            ty = my - ns * cy;
-          }
-          applyTransform();
+        if (ns <= 1.001) {
+          s = 1;
+          tx = 0;
+          ty = 0;
         } else {
-          // two-finger swipe = wheel scroll (at fit, or while rotated)
-          scrollAcc += my - prevMy;
-          while (scrollAcc >= SCROLL_PX) {
-            wheel(midClientX, midClientY, WHEEL_UP);
-            scrollAcc -= SCROLL_PX;
-          }
-          while (scrollAcc <= -SCROLL_PX) {
-            wheel(midClientX, midClientY, WHEEL_DOWN);
-            scrollAcc += SCROLL_PX;
-          }
+          const cx = (gMidX - gTx) / gScale; // base point under the start midpoint
+          const cy = (gMidY - gTy) / gScale;
+          s = ns;
+          tx = mx - ns * cx;
+          ty = my - ns * cy;
         }
-        prevMy = my;
+        applyTransform();
+        return;
+      }
+
+      if (pts.size === 3) {
+        const mid = midOf([...pts.values()]);
+        scrollAcc += mid.y - prevMy;
+        while (scrollAcc >= SCROLL_PX) {
+          wheel(mid.x, mid.y, WHEEL_UP);
+          scrollAcc -= SCROLL_PX;
+        }
+        while (scrollAcc <= -SCROLL_PX) {
+          wheel(mid.x, mid.y, WHEEL_DOWN);
+          scrollAcc += SCROLL_PX;
+        }
+        prevMy = mid.y;
       }
     };
 
@@ -327,9 +351,12 @@ export function RemotePanel({ client }: Props) {
       if (!pts.has(e.pointerId)) return;
       const p = pts.get(e.pointerId)!;
       pts.delete(e.pointerId);
-      if (pts.size > 0) return;
+      if (pts.size > 0) {
+        syncGesture(); // a finger lifted but others remain; reseat baselines
+        return;
+      }
       clearHold();
-      if (!multi) {
+      if (maxPts === 1) {
         if (rightDone) {
           // already handled
         } else if (engaged) {
@@ -338,12 +365,12 @@ export function RemotePanel({ client }: Props) {
           wheel(start.x, start.y, LEFT); // tap = left click
         }
       }
-      multi = false;
+      maxPts = 0;
       engaged = false;
       rightDone = false;
     };
 
-    stage.addEventListener("pointerdown", onDown);
+    stage.addEventListener("pointerdown", onDown, { passive: false });
     stage.addEventListener("pointermove", onMove);
     stage.addEventListener("pointerup", onUp);
     stage.addEventListener("pointercancel", onUp);
@@ -458,8 +485,13 @@ export function RemotePanel({ client }: Props) {
   };
 
   const toggleKeyboard = () => {
-    if (keyboardActive) kbdRef.current?.blur();
-    else kbdRef.current?.focus();
+    if (keyboardActive) {
+      kbdRef.current?.blur();
+    } else {
+      wasRotatedRef.current = rotated; // remember to restore it on close
+      setRotated(false); // vertical + soft keyboard breaks the layout
+      kbdRef.current?.focus();
+    }
   };
 
   // Keep the textarea focused when tapping on-screen control buttons, otherwise
@@ -495,7 +527,7 @@ export function RemotePanel({ client }: Props) {
 
         {connected ? (
           <>
-            <div className="vnc-overlay">
+            <div className={rotated ? "vnc-overlay rotated" : "vnc-overlay"}>
               <button
                 type="button"
                 className={keyboardActive ? "active" : ""}
@@ -520,6 +552,7 @@ export function RemotePanel({ client }: Props) {
                 Stop
               </button>
             </div>
+            {!rotated && (
             <div className="vnc-keys">
               {MODIFIERS.map((m) => (
                 <button
@@ -539,6 +572,7 @@ export function RemotePanel({ client }: Props) {
                 Tab
               </button>
             </div>
+            )}
           </>
         ) : (
           <div className="vnc-start">
@@ -559,7 +593,13 @@ export function RemotePanel({ client }: Props) {
           onKeyDown={onKbdKeyDown}
           onInput={onKbdInput}
           onFocus={() => setKeyboardActive(true)}
-          onBlur={() => setKeyboardActive(false)}
+          onBlur={() => {
+            setKeyboardActive(false);
+            if (wasRotatedRef.current) {
+              wasRotatedRef.current = false;
+              setRotated(true); // back to vertical now the keyboard is gone
+            }
+          }}
         />
       </div>
     </div>

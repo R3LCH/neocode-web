@@ -508,6 +508,15 @@ button.ghost.danger {
   border-color: var(--accent);
 }
 
+/* In vertical-fill mode the user turns the phone 90°, so spin the controls to
+   match — the row becomes an upright column pinned to the (now top) edge. */
+.vnc-overlay.rotated {
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%) rotate(90deg);
+  transform-origin: center;
+}
+
 /* "Start desktop" centered before a session exists. */
 .vnc-start {
   position: absolute;

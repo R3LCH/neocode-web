@@ -466,6 +466,21 @@ button.ghost.danger {
   border-color: var(--accent);
 }
 
+/* Our own cursor marker — the OS cursor isn't visible under a finger. Centred
+   on the mapped framebuffer point; updated as you tap/drag/pan/zoom. */
+.vnc-cursor {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 4;
+}
+
 /* Floating controls, top-right, over the screen once connected. */
 .vnc-overlay {
   position: absolute;

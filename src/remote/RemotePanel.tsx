@@ -168,15 +168,36 @@ export function RemotePanel({ client }: Props) {
       applyTransform();
     };
 
+    // noVNC (scaleViewport) re-fits its canvas whenever the container resizes,
+    // measuring it with a transform-aware getBoundingClientRect(). If our
+    // rotate/zoom transform is applied while it measures, it reads the rotated
+    // bbox and fits the framebuffer tiny & mis-placed. So we drop the transform
+    // to identity (letting noVNC fit the *true* box), then re-apply once the
+    // viewport has settled and noVNC has re-fit against the untransformed box.
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const neutralize = () => {
+      zoom.style.transform = "none";
+    };
+    const settle = () => {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        s = 1;
+        tx = 0;
+        ty = 0;
+        if (rotated) applyRotation();
+        else applyTransform();
+      }, 140);
+    };
+
     setRotatedRef.current = (on: boolean) => {
       rotated = on;
       s = 1;
       tx = 0;
       ty = 0;
       if (on) {
-        applyRotation();
-        // The viewport can settle a beat later (e.g. keyboard), so recompute.
-        setTimeout(applyRotation, 350);
+        neutralize(); // keep noVNC fitting the real box, then rotate on settle
+        settle();
       } else {
         applyTransform();
       }
@@ -190,17 +211,9 @@ export function RemotePanel({ client }: Props) {
       else applyTransform();
     };
 
-    // A viewport resize (notably the soft keyboard opening/closing) refits the
-    // noVNC canvas to new dimensions, which leaves any active zoom transform
-    // measured against the old letterbox — the view ends up cropped. Drop back
-    // to fit on every resize so the transform is always rebuilt for the current
-    // canvas size.
     const onResize = () => {
-      s = 1;
-      tx = 0;
-      ty = 0;
-      if (rotated) applyRotation();
-      else applyTransform();
+      neutralize();
+      settle();
     };
     window.addEventListener("resize", onResize);
     window.visualViewport?.addEventListener("resize", onResize);
@@ -402,6 +415,7 @@ export function RemotePanel({ client }: Props) {
       stage.removeEventListener("pointercancel", onUp);
       window.removeEventListener("resize", onResize);
       window.visualViewport?.removeEventListener("resize", onResize);
+      if (settleTimer) clearTimeout(settleTimer);
     };
   }, [connected]);
 

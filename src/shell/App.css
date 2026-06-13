@@ -20,8 +20,10 @@ body {
   display: flex;
   flex-direction: column;
   /* Definite height (not min-height) so flex children — and noVNC's
-     height:100% screen inside the remote panel — can resolve their heights. */
-  height: 100dvh;
+     height:100% screen inside the remote panel — can resolve their heights.
+     --vvh tracks the visual viewport so the layout stays above the on-screen
+     keyboard when it opens; falls back to the full dynamic viewport. */
+  height: var(--vvh, 100dvh);
 }
 
 .tabs {
@@ -403,27 +405,81 @@ button.ghost.danger {
   border-radius: 8px;
 }
 
-/* Remote panel: screen fills the panel vertically, buttons pinned to a footer.
-   The panel (.panel) is already a definite-height flex column, so flex:1 here
+/* Remote panel: the screen fills the whole panel; controls float on top of it.
+   The panel (.panel) is a definite-height flex column, so the stage's flex:1
    gives the container a definite height that noVNC's height:100% screen
    resolves against. */
-.remote-panel {
-  gap: 8px;
+.vnc-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .vnc-container {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
 }
 
-.remote-footer {
-  flex-shrink: 0;
+/* Floating controls, top-right, over the screen once connected. */
+.vnc-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 5;
+}
+
+.vnc-overlay button {
+  min-width: 44px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+
+/* "Start desktop" centered before a session exists. */
+.vnc-start {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* Error toast over the screen while connected. */
+.vnc-banner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  text-align: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  z-index: 6;
+}
+
+/* Off-screen sink that opens the soft keyboard and forwards keystrokes. */
+.vnc-kbd {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
 }
 
 .mode,

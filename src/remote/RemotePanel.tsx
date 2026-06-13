@@ -11,6 +11,7 @@ export function RemotePanel({ client }: Props) {
   const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [error, setError] = useState("");
+  const [debug, setDebug] = useState("");
 
   useEffect(() => {
     client.call("remote.status").then((s) => setStatus(s as RemoteStatus)).catch(() => undefined);
@@ -53,6 +54,19 @@ export function RemotePanel({ client }: Props) {
       rfb.addEventListener("connect", () => {
         handshaken = true;
         setError("");
+        // Report the framebuffer resolution vs. the rendered canvas size so a
+        // phone-only tester can see whether the canvas is 0-sized (layout bug)
+        // or full-size-but-black (decode bug) without devtools.
+        setTimeout(() => {
+          const cv = container.querySelector("canvas");
+          if (!cv) {
+            setDebug("connected, but no <canvas> was created");
+            return;
+          }
+          setDebug(
+            `fb ${cv.width}×${cv.height} | css ${cv.clientWidth}×${cv.clientHeight} | box ${container.clientWidth}×${container.clientHeight}`,
+          );
+        }, 400);
       });
       rfb.addEventListener("securityfailure", (ev: { detail?: { reason?: string } }) => {
         setError(ev.detail?.reason || "VNC authentication failed");
@@ -99,6 +113,7 @@ export function RemotePanel({ client }: Props) {
         </p>
       )}
       {error && <p className="error">{error}</p>}
+      {debug && <p className="hint">{debug}</p>}
       <div ref={containerRef} className="vnc-container" />
     </div>
   );

@@ -509,13 +509,18 @@ button.ghost.danger {
 }
 
 /* In vertical-fill mode the user turns the phone 90°, so spin the controls to
-   match. Lay them out as a real vertical column (so they always stay on-screen,
-   pinned top-right) and rotate each button's glyph 90° to read upright. */
+   match. Stack them in a vertical column pinned top-right (always on-screen),
+   and make each button square so rotating its glyph 90° keeps the exact same
+   footprint — no overflow, no clipping. */
 .vnc-overlay.rotated {
   flex-direction: column;
 }
 
 .vnc-overlay.rotated button {
+  width: 44px;
+  height: 44px;
+  min-width: 0;
+  padding: 0;
   transform: rotate(90deg);
 }
 

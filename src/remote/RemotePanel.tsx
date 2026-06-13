@@ -14,7 +14,6 @@ export function RemotePanel({ client }: Props) {
   const rfbRef = useRef<InstanceType<typeof RFB> | null>(null);
   const resetViewRef = useRef<() => void>(() => undefined);
   const setRotatedRef = useRef<(on: boolean) => void>(() => undefined);
-  const wasRotatedRef = useRef(false); // restore vertical after the keyboard closes
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [keyboardActive, setKeyboardActive] = useState(false);
@@ -405,11 +404,14 @@ export function RemotePanel({ client }: Props) {
     };
   }, [connected]);
 
-  // Rotation is a manual toggle (the ⟳ button); both orientations are fully
-  // interactive now that we map taps ourselves.
+  // `rotated` is the user's chosen orientation (the ⟳ button). The keyboard
+  // can't coexist with the vertical layout (it breaks the rendering), so the
+  // effective orientation simply suppresses vertical whenever the keyboard is
+  // up — and restores it automatically when the keyboard closes, no bookkeeping.
+  const verticalActive = connected && rotated && !keyboardActive;
   useEffect(() => {
-    setRotatedRef.current(connected && rotated);
-  }, [rotated, connected]);
+    setRotatedRef.current(verticalActive);
+  }, [verticalActive]);
 
   const startVnc = async () => {
     setError("");
@@ -506,13 +508,8 @@ export function RemotePanel({ client }: Props) {
   };
 
   const toggleKeyboard = () => {
-    if (keyboardActive) {
-      kbdRef.current?.blur();
-    } else {
-      wasRotatedRef.current = rotated; // remember to restore it on close
-      setRotated(false); // vertical + soft keyboard breaks the layout
-      kbdRef.current?.focus();
-    }
+    if (keyboardActive) kbdRef.current?.blur();
+    else kbdRef.current?.focus();
   };
 
   // Keep the textarea focused when tapping on-screen control buttons, otherwise
@@ -548,7 +545,7 @@ export function RemotePanel({ client }: Props) {
 
         {connected ? (
           <>
-            <div className={rotated ? "vnc-overlay rotated" : "vnc-overlay"}>
+            <div className={verticalActive ? "vnc-overlay rotated" : "vnc-overlay"}>
               <button
                 type="button"
                 className={keyboardActive ? "active" : ""}
@@ -573,7 +570,7 @@ export function RemotePanel({ client }: Props) {
                 Stop
               </button>
             </div>
-            {!rotated && (
+            {!verticalActive && (
             <div className="vnc-keys">
               {MODIFIERS.map((m) => (
                 <button
@@ -614,13 +611,7 @@ export function RemotePanel({ client }: Props) {
           onKeyDown={onKbdKeyDown}
           onInput={onKbdInput}
           onFocus={() => setKeyboardActive(true)}
-          onBlur={() => {
-            setKeyboardActive(false);
-            if (wasRotatedRef.current) {
-              wasRotatedRef.current = false;
-              setRotated(true); // back to vertical now the keyboard is gone
-            }
-          }}
+          onBlur={() => setKeyboardActive(false)}
         />
       </div>
     </div>

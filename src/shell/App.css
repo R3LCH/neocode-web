@@ -509,12 +509,13 @@ button.ghost.danger {
 }
 
 /* In vertical-fill mode the user turns the phone 90°, so spin the controls to
-   match — the row becomes an upright column pinned to the (now top) edge. */
+   match. Rotating about the top-right corner turns the row into a column that
+   hangs straight down from the top edge instead of floating in the middle. */
 .vnc-overlay.rotated {
-  top: 50%;
+  top: 8px;
   right: 8px;
-  transform: translateY(-50%) rotate(90deg);
-  transform-origin: center;
+  transform: rotate(90deg);
+  transform-origin: 100% 0;
 }
 
 /* "Start desktop" centered before a session exists. */

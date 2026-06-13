@@ -65,14 +65,17 @@ export function RemotePanel({ client }: Props) {
     const dist = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
-    // Rotate the landscape desktop 90° to fill the portrait panel while typing.
     // Rotate the noVNC element 90° clockwise (desktop's left edge → top of the
-    // panel, right edge → bottom) and fill the stage. We give the element a
-    // landscape-shaped size (stage height × stage width) so noVNC's
-    // scaleViewport fits the whole desktop into it, then rotate it to occupy
-    // the portrait stage. This is the default view; clicks are disabled here
-    // because rotation breaks the tap→pixel mapping — open the keyboard to drop
-    // to landscape where taps drive the mouse.
+    // panel, right edge → bottom) and scale the desktop up to fill the panel.
+    // We give the element a landscape-shaped size (stage height × stage width)
+    // and force noVNC to re-fit the framebuffer into it (its ResizeObserver is
+    // rate-limited and otherwise keeps the old, small landscape scale — looking
+    // like a bare 90° flip). Then rotate it to occupy the portrait stage.
+    // Clicks are disabled here because rotation breaks the tap→pixel mapping.
+    const refit = () => {
+      const rfb = rfbRef.current;
+      if (rfb) rfb.scaleViewport = true;
+    };
     const applyRotation = () => {
       const sw = stage.clientWidth;
       const sh = stage.clientHeight;
@@ -81,6 +84,9 @@ export function RemotePanel({ client }: Props) {
       zoom.style.width = `${sh}px`;
       zoom.style.height = `${sw}px`;
       zoom.style.transform = `translate(${sw}px, 0) rotate(90deg)`;
+      // Reading a layout property flushes the resize so noVNC re-fits to it.
+      void zoom.offsetWidth;
+      refit();
     };
 
     setRotatedRef.current = (on: boolean) => {
@@ -88,8 +94,7 @@ export function RemotePanel({ client }: Props) {
       if (on) {
         container.style.pointerEvents = "none";
         applyRotation();
-        // The keyboard animates in and the viewport resizes a beat later, so
-        // recompute once it has settled.
+        // The viewport can settle a beat later (e.g. keyboard), so recompute.
         setTimeout(applyRotation, 350);
       } else {
         container.style.pointerEvents = "";
@@ -101,6 +106,8 @@ export function RemotePanel({ client }: Props) {
         tx = 0;
         ty = 0;
         apply();
+        void zoom.offsetWidth;
+        refit();
       }
     };
 

@@ -97,24 +97,26 @@ export function RemotePanel({ client }: Props) {
 
   return (
     <div className="panel remote-panel">
-      <div className="row">
-        <button type="button" onClick={startVnc}>
-          Start desktop
-        </button>
-        <button type="button" onClick={stopVnc}>
-          Stop
-        </button>
-      </div>
-      {status && (
-        <p className="hint">
-          VNC: {status.vnc_running ? "running" : "stopped"} | Proxy:{" "}
-          {status.proxy_active ? "active" : "idle"} | Allow:{" "}
-          {status.allow_control ? "yes" : "no"}
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-      {debug && <p className="hint">{debug}</p>}
       <div ref={containerRef} className="vnc-container" />
+      <div className="remote-footer">
+        {status && (
+          <p className="hint">
+            VNC: {status.vnc_running ? "running" : "stopped"} | Proxy:{" "}
+            {status.proxy_active ? "active" : "idle"} | Allow:{" "}
+            {status.allow_control ? "yes" : "no"}
+          </p>
+        )}
+        {error && <p className="error">{error}</p>}
+        {debug && <p className="hint">{debug}</p>}
+        <div className="row">
+          <button type="button" onClick={startVnc}>
+            Start desktop
+          </button>
+          <button type="button" onClick={stopVnc}>
+            Stop
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

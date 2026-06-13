@@ -19,7 +19,9 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  /* Definite height (not min-height) so flex children — and noVNC's
+     height:100% screen inside the remote panel — can resolve their heights. */
+  height: 100dvh;
 }
 
 .tabs {
@@ -401,11 +403,27 @@ button.ghost.danger {
   border-radius: 8px;
 }
 
+/* Remote panel: screen fills the panel vertically, buttons pinned to a footer.
+   The panel (.panel) is already a definite-height flex column, so flex:1 here
+   gives the container a definite height that noVNC's height:100% screen
+   resolves against. */
+.remote-panel {
+  gap: 8px;
+}
+
 .vnc-container {
-  min-height: 50vh;
+  flex: 1;
+  min-height: 0;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.remote-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .mode,

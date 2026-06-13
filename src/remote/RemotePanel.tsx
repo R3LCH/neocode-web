@@ -34,126 +34,116 @@ export function RemotePanel({ client }: Props) {
     };
   }, []);
 
-  // Pinch-to-zoom + two-finger pan. Implemented with a CSS transform on a
-  // wrapper around noVNC's canvas: scale/translate are transform-origin-0,0 and
-  // getBoundingClientRect stays transform-aware, so single-finger taps still map
-  // to the right remote pixel. Two-finger gestures are captured here (passive:
-  // false) so noVNC's own touch handling doesn't fight them.
+  // Pinch-to-zoom (in and out) and manual rotate. Zoom drives noVNC's own
+  // _display.scale (not a CSS transform) so the pointer mapping stays accurate
+  // — absX divides client coords by _display.scale, which a CSS scale wouldn't
+  // change. We pair it with clipViewport + dragViewport so the enlarged desktop
+  // can be panned by dragging, and tapping still clicks the right pixel.
   useEffect(() => {
     const stage = stageRef.current;
     const zoom = zoomRef.current;
     const container = containerRef.current;
     if (!stage || !zoom || !container) return;
 
-    let scale = 1;
-    let tx = 0;
-    let ty = 0;
+    let rotated = false;
+    let active = false;
+    let zoomMode = false;
+    let fitScale = 0; // noVNC scale at fit — the zoom-out floor
+    let curZoom = 0; // current _display.scale while zoomed
     let startDist = 0;
     let startScale = 1;
-    let startMidX = 0;
-    let startMidY = 0;
-    let startTx = 0;
-    let startTy = 0;
-    let rectL = 0;
-    let rectT = 0;
-    let active = false;
-    let rotated = false;
 
-    const apply = () => {
-      zoom.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    };
     const dist = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const display = () => rfbRef.current?._display;
 
-    // Rotate the noVNC element 90° clockwise (desktop's left edge → top of the
-    // panel, right edge → bottom) and scale the desktop up to fill the panel.
-    // We give the element a landscape-shaped size (stage height × stage width)
-    // and force noVNC to re-fit the framebuffer into it (its ResizeObserver is
-    // rate-limited and otherwise keeps the old, small landscape scale — looking
-    // like a bare 90° flip). Then rotate it to occupy the portrait stage.
-    // Clicks are disabled here because rotation breaks the tap→pixel mapping.
-    const refit = () => {
+    const enterZoom = () => {
       const rfb = rfbRef.current;
-      if (rfb) rfb.scaleViewport = true;
+      if (zoomMode || !rfb) return;
+      zoomMode = true;
+      rfb.scaleViewport = false; // stop autoscale; we set the scale ourselves
+      rfb.clipViewport = true; // limit the viewport so it can be panned
+      rfb.dragViewport = true; // one-finger drag pans, tap still clicks
     };
+    const exitZoom = () => {
+      const rfb = rfbRef.current;
+      zoomMode = false;
+      curZoom = 0;
+      if (!rfb) return;
+      rfb.dragViewport = false;
+      rfb.clipViewport = false;
+      rfb.scaleViewport = true; // back to fit
+    };
+
+    // Rotate 90° clockwise (desktop left edge → top, right → bottom) and scale
+    // UP to fill the panel vertically. We do NOT resize the noVNC box: its
+    // _screenSize uses getBoundingClientRect, which would report the rotated
+    // (swapped-back) size and refit small — a bare flip. Instead we leave the
+    // fit untouched and enlarge with a transform about the centre. View-only
+    // here (rotation breaks tap→pixel mapping).
     const applyRotation = () => {
-      const sw = stage.clientWidth;
-      const sh = stage.clientHeight;
-      zoom.style.right = "auto";
-      zoom.style.bottom = "auto";
-      zoom.style.width = `${sh}px`;
-      zoom.style.height = `${sw}px`;
-      zoom.style.transform = `translate(${sw}px, 0) rotate(90deg)`;
-      // Reading a layout property flushes the resize so noVNC re-fits to it.
-      void zoom.offsetWidth;
-      refit();
+      const cv = container.querySelector("canvas");
+      if (!cv || !cv.clientWidth) return;
+      // After rotation the desktop's displayed width spans the panel height.
+      const k = stage.clientHeight / cv.clientWidth;
+      zoom.style.transformOrigin = "center center";
+      zoom.style.transform = `rotate(90deg) scale(${k})`;
     };
 
     setRotatedRef.current = (on: boolean) => {
       rotated = on;
       if (on) {
+        if (zoomMode) exitZoom();
         container.style.pointerEvents = "none";
         applyRotation();
         // The viewport can settle a beat later (e.g. keyboard), so recompute.
         setTimeout(applyRotation, 350);
       } else {
         container.style.pointerEvents = "";
-        zoom.style.right = "";
-        zoom.style.bottom = "";
-        zoom.style.width = "";
-        zoom.style.height = "";
-        scale = 1;
-        tx = 0;
-        ty = 0;
-        apply();
-        void zoom.offsetWidth;
-        refit();
+        zoom.style.transform = "";
+        zoom.style.transformOrigin = "";
       }
+    };
+
+    resetViewRef.current = () => {
+      if (zoomMode) exitZoom();
     };
 
     const onResize = () => {
       if (rotated) applyRotation();
+      else if (zoomMode) {
+        const d = display();
+        if (d) d.scale = curZoom; // noVNC resets scale on resize; re-apply
+      }
     };
     window.addEventListener("resize", onResize);
     window.visualViewport?.addEventListener("resize", onResize);
 
     const onStart = (e: TouchEvent) => {
       if (rotated || e.touches.length !== 2) return;
-      const rect = stage.getBoundingClientRect();
-      rectL = rect.left;
-      rectT = rect.top;
       active = true;
       startDist = dist(e.touches);
-      startScale = scale;
-      startMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rectL;
-      startMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rectT;
-      startTx = tx;
-      startTy = ty;
+      startScale = display()?.scale ?? 1;
+      if (!zoomMode) fitScale = startScale;
       e.preventDefault();
     };
     const onMove = (e: TouchEvent) => {
       if (rotated || !active || e.touches.length !== 2) return;
-      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rectL;
-      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rectT;
-      const ns = Math.min(5, Math.max(1, (startScale * dist(e.touches)) / startDist));
-      // Anchor the zoom on the pinch midpoint and pan as it moves.
-      const cx = (startMidX - startTx) / startScale;
-      const cy = (startMidY - startTy) / startScale;
-      scale = ns;
-      tx = mx - ns * cx;
-      ty = my - ns * cy;
-      apply();
       e.preventDefault();
+      const target = (startScale * dist(e.touches)) / startDist;
+      if (target <= fitScale * 1.05) {
+        if (zoomMode) exitZoom(); // pinched back to fit → restore autoscale
+        return;
+      }
+      enterZoom();
+      const d = display();
+      if (d) {
+        curZoom = Math.min(target, fitScale * 8);
+        d.scale = curZoom;
+      }
     };
     const onEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) active = false;
-    };
-
-    resetViewRef.current = () => {
-      scale = 1;
-      tx = 0;
-      ty = 0;
-      apply();
     };
 
     stage.addEventListener("touchstart", onStart, { passive: false });

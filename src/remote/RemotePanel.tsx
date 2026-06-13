@@ -65,34 +65,35 @@ export function RemotePanel({ client }: Props) {
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
     // Rotate the landscape desktop 90° to fill the portrait panel while typing.
-    // noVNC drops to native size; we scale-to-fit the rotated framebuffer and
-    // disable canvas clicks (keyboard still drives via sendKey).
+    // Rotate the noVNC element 90° clockwise (desktop's left edge → top of the
+    // panel, right edge → bottom) and fill the stage. We give the element a
+    // landscape-shaped size (stage height × stage width) so noVNC's
+    // scaleViewport fits the whole desktop into it, then rotate it to occupy
+    // the portrait stage. Clicks are disabled while rotated — keyboard drives.
     const applyRotation = () => {
-      const cv = container.querySelector("canvas");
-      if (!cv || !cv.width || !cv.height) return;
       const sw = stage.clientWidth;
       const sh = stage.clientHeight;
-      const fw = cv.width;
-      const fh = cv.height;
-      const s = Math.min(sw / fh, sh / fw);
-      const rtx = (sw + s * fh) / 2;
-      const rty = (sh - s * fw) / 2;
-      zoom.style.transform = `translate(${rtx}px, ${rty}px) rotate(90deg) scale(${s})`;
+      zoom.style.right = "auto";
+      zoom.style.bottom = "auto";
+      zoom.style.width = `${sh}px`;
+      zoom.style.height = `${sw}px`;
+      zoom.style.transform = `translate(${sw}px, 0) rotate(90deg)`;
     };
 
     setRotatedRef.current = (on: boolean) => {
       rotated = on;
-      const rfb = rfbRef.current;
       if (on) {
-        if (rfb) rfb.scaleViewport = false;
         container.style.pointerEvents = "none";
+        applyRotation();
         // The keyboard animates in and the viewport resizes a beat later, so
         // recompute once it has settled.
-        applyRotation();
         setTimeout(applyRotation, 350);
       } else {
         container.style.pointerEvents = "";
-        if (rfb) rfb.scaleViewport = true;
+        zoom.style.right = "";
+        zoom.style.bottom = "";
+        zoom.style.width = "";
+        zoom.style.height = "";
         scale = 1;
         tx = 0;
         ty = 0;
@@ -261,6 +262,10 @@ export function RemotePanel({ client }: Props) {
     else kbdRef.current?.focus();
   };
 
+  // Keep the textarea focused when tapping on-screen control buttons, otherwise
+  // the tap blurs it: the soft keyboard closes and modifier chains break.
+  const keepFocus = (e: React.MouseEvent) => e.preventDefault();
+
   const onKbdKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keysym = SPECIAL_KEYSYMS[e.key];
     if (keysym) {
@@ -293,6 +298,7 @@ export function RemotePanel({ client }: Props) {
               <button
                 type="button"
                 className={keyboardActive ? "active" : ""}
+                onMouseDown={keepFocus}
                 onClick={toggleKeyboard}
                 title="Keyboard"
               >
@@ -311,15 +317,16 @@ export function RemotePanel({ client }: Props) {
                   key={m.keysym}
                   type="button"
                   className={mods.includes(m.keysym) ? "active" : ""}
+                  onMouseDown={keepFocus}
                   onClick={() => toggleMod(m.keysym)}
                 >
                   {m.label}
                 </button>
               ))}
-              <button type="button" onClick={() => sendKeysym(0xff1b)}>
+              <button type="button" onMouseDown={keepFocus} onClick={() => sendKeysym(0xff1b)}>
                 Esc
               </button>
-              <button type="button" onClick={() => sendKeysym(0xff09)}>
+              <button type="button" onMouseDown={keepFocus} onClick={() => sendKeysym(0xff09)}>
                 Tab
               </button>
             </div>

@@ -58,7 +58,9 @@ export function RemotePanel({ client }: Props) {
     const WHEEL_UP = 8;
     const WHEEL_DOWN = 16;
     const DRAG_PX = 10;
-    const SCROLL_PX = 28; // three-finger travel per wheel notch
+    const SCROLL_PX = 28; // two-finger travel per wheel notch
+    const PINCH_PX = 14; // span change that commits a two-finger gesture to zoom
+    const PAN_PX = 12; // midpoint travel that commits it to pan/scroll
     const HOLD_MS = 500;
 
     // View transform = a screen-space zoom/pan layer (s, tx, ty) applied on top
@@ -188,17 +190,27 @@ export function RemotePanel({ client }: Props) {
       else applyTransform();
     };
 
+    // A viewport resize (notably the soft keyboard opening/closing) refits the
+    // noVNC canvas to new dimensions, which leaves any active zoom transform
+    // measured against the old letterbox — the view ends up cropped. Drop back
+    // to fit on every resize so the transform is always rebuilt for the current
+    // canvas size.
     const onResize = () => {
+      s = 1;
+      tx = 0;
+      ty = 0;
       if (rotated) applyRotation();
-      else placeCursor();
+      else applyTransform();
     };
     window.addEventListener("resize", onResize);
     window.visualViewport?.addEventListener("resize", onResize);
 
     // ---- pointer handling ----
     //   1 finger  → left mouse (tap = click, hold = right-click, drag = drag)
-    //   2 fingers → pinch-zoom + pan
-    //   3 fingers → vertical swipe = wheel scroll
+    //   2 fingers → classified once per gesture and locked:
+    //               • spreading/pinching the fingers  → zoom
+    //               • moving them together (span held) → pan when zoomed in,
+    //                 else wheel scroll
     const pts = new Map<number, { x: number; y: number }>();
     let maxPts = 0; // most fingers seen this gesture (gates click/zoom/scroll)
     // one-finger state machine
@@ -208,28 +220,19 @@ export function RemotePanel({ client }: Props) {
     let rightDone = false; // long-press already fired a right-click
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
     let lastMove = 0;
-    // pinch (2-finger) baseline
+    // two-finger gesture baseline + locked intent
+    let mode2: "none" | "zoom" | "pan" = "none";
     let gDist = 0;
     let gScale = 1;
     let gTx = 0;
     let gTy = 0;
     let gMidX = 0;
     let gMidY = 0;
-    // scroll (3-finger) baseline
     let prevMy = 0;
     let scrollAcc = 0;
 
     const spanOf = (a: { x: number; y: number }[]) =>
       Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
-    const midOf = (a: { x: number; y: number }[]) => {
-      let x = 0;
-      let y = 0;
-      for (const p of a) {
-        x += p.x;
-        y += p.y;
-      }
-      return { x: x / a.length, y: y / a.length };
-    };
     const clearHold = () => {
       if (holdTimer) {
         clearTimeout(holdTimer);
@@ -237,22 +240,21 @@ export function RemotePanel({ client }: Props) {
       }
     };
 
-    // (Re)seed the baseline for whatever multi-finger gesture is now active, so
-    // adding/lifting a finger (1↔2↔3) doesn't make the view jump.
+    // (Re)seed the two-finger baseline and clear the locked intent, so adding or
+    // lifting a finger doesn't make the view jump or carry over a stale mode.
     const syncGesture = () => {
+      if (pts.size !== 2) return;
       const a = [...pts.values()];
       const rect = stage.getBoundingClientRect();
-      if (pts.size === 2) {
-        gDist = spanOf(a) || 1;
-        gScale = s;
-        gTx = tx;
-        gTy = ty;
-        gMidX = (a[0].x + a[1].x) / 2 - rect.left;
-        gMidY = (a[0].y + a[1].y) / 2 - rect.top;
-      } else if (pts.size === 3) {
-        prevMy = midOf(a).y;
-        scrollAcc = 0;
-      }
+      mode2 = "none";
+      gDist = spanOf(a) || 1;
+      gScale = s;
+      gTx = tx;
+      gTy = ty;
+      gMidX = (a[0].x + a[1].x) / 2 - rect.left;
+      gMidY = (a[0].y + a[1].y) / 2 - rect.top;
+      prevMy = gMidY;
+      scrollAcc = 0;
     };
 
     const onDown = (e: PointerEvent) => {
@@ -314,36 +316,55 @@ export function RemotePanel({ client }: Props) {
       if (pts.size === 2) {
         const a = [...pts.values()];
         const rect = stage.getBoundingClientRect();
-        const mx = (a[0].x + a[1].x) / 2 - rect.left;
-        const my = (a[0].y + a[1].y) / 2 - rect.top;
-        const ns = Math.min(8, Math.max(1, (gScale * spanOf(a)) / gDist));
-        if (ns <= 1.001) {
-          s = 1;
-          tx = 0;
-          ty = 0;
-        } else {
-          const cx = (gMidX - gTx) / gScale; // base point under the start midpoint
-          const cy = (gMidY - gTy) / gScale;
-          s = ns;
-          tx = mx - ns * cx;
-          ty = my - ns * cy;
-        }
-        applyTransform();
-        return;
-      }
+        const midClientX = (a[0].x + a[1].x) / 2;
+        const midClientY = (a[0].y + a[1].y) / 2;
+        const mx = midClientX - rect.left;
+        const my = midClientY - rect.top;
+        const span = spanOf(a);
 
-      if (pts.size === 3) {
-        const mid = midOf([...pts.values()]);
-        scrollAcc += mid.y - prevMy;
-        while (scrollAcc >= SCROLL_PX) {
-          wheel(mid.x, mid.y, WHEEL_UP);
-          scrollAcc -= SCROLL_PX;
+        // Classify once, then lock — so a pinch can't drift into a scroll, nor
+        // vice-versa, for the rest of this two-finger gesture.
+        if (mode2 === "none") {
+          const spanDelta = Math.abs(span - gDist);
+          const moveDelta = Math.hypot(mx - gMidX, my - gMidY);
+          if (spanDelta > PINCH_PX && spanDelta >= moveDelta) {
+            mode2 = "zoom";
+          } else if (moveDelta > PAN_PX) {
+            mode2 = "pan";
+            prevMy = my; // start scroll accounting from here
+          } else {
+            return; // ambiguous so far; wait for a clear intent
+          }
         }
-        while (scrollAcc <= -SCROLL_PX) {
-          wheel(mid.x, mid.y, WHEEL_DOWN);
-          scrollAcc += SCROLL_PX;
+
+        if (mode2 === "zoom") {
+          const ns = Math.min(8, Math.max(1, (gScale * span) / gDist));
+          if (ns <= 1.001) {
+            s = 1;
+            tx = 0;
+            ty = 0;
+          } else {
+            const cx = (gMidX - gTx) / gScale; // base point under start midpoint
+            const cy = (gMidY - gTy) / gScale;
+            s = ns;
+            tx = mx - ns * cx;
+            ty = my - ns * cy;
+          }
+          applyTransform();
+        } else {
+          // two-finger swipe = wheel scroll on the remote (independent of zoom)
+          scrollAcc += my - prevMy;
+          while (scrollAcc >= SCROLL_PX) {
+            wheel(midClientX, midClientY, WHEEL_UP);
+            scrollAcc -= SCROLL_PX;
+          }
+          while (scrollAcc <= -SCROLL_PX) {
+            wheel(midClientX, midClientY, WHEEL_DOWN);
+            scrollAcc += SCROLL_PX;
+          }
+          prevMy = my;
         }
-        prevMy = mid.y;
+        return;
       }
     };
 

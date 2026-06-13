@@ -18,6 +18,7 @@ export function RemotePanel({ client }: Props) {
   const [connected, setConnected] = useState(false);
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [rotated, setRotated] = useState(false);
+  const [navOpen, setNavOpen] = useState(false); // vertical-mode controls reveal
   const [mods, setMods] = useState<number[]>([]);
 
   // Keep the screen above the on-screen keyboard: the visual viewport shrinks
@@ -546,6 +547,19 @@ export function RemotePanel({ client }: Props) {
         {connected ? (
           <>
             <div className={verticalActive ? "vnc-overlay rotated" : "vnc-overlay"}>
+              {verticalActive && (
+                <button
+                  type="button"
+                  className="vnc-nav-toggle"
+                  onMouseDown={keepFocus}
+                  onClick={() => setNavOpen((o) => !o)}
+                  title={navOpen ? "Hide controls" : "Show controls"}
+                >
+                  {navOpen ? "‹" : "›"}
+                </button>
+              )}
+              {(!verticalActive || navOpen) && (
+              <>
               <button
                 type="button"
                 className={keyboardActive ? "active" : ""}
@@ -569,6 +583,8 @@ export function RemotePanel({ client }: Props) {
               <button type="button" onClick={stopVnc} title="Disconnect screen">
                 Stop
               </button>
+              </>
+              )}
             </div>
             {!verticalActive && (
             <div className="vnc-keys">

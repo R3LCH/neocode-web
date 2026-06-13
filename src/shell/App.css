@@ -524,6 +524,19 @@ button.ghost.danger {
   transform: rotate(90deg);
 }
 
+/* Collapse toggle for vertical mode: no button chrome, just a chevron — but
+   kept clearly legible over any desktop content with a bold glyph + shadow. */
+.vnc-overlay button.vnc-nav-toggle {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
+}
+
 /* "Start desktop" centered before a session exists. */
 .vnc-start {
   position: absolute;

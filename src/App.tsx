@@ -7,6 +7,7 @@ import { TerminalsPanel } from "./terminals/TerminalsPanel";
 import { RemotePanel } from "./remote/RemotePanel";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { applyPrefs, loadPrefs } from "./settings/webPrefs";
+import { watchThreadNotifications } from "./notifications";
 import "./shell/App.css";
 
 type Tab = "chat" | "terminals" | "remote" | "settings";
@@ -105,6 +106,12 @@ export default function App() {
     return client.on((event) => {
       if (event === SESSION_LOST_EVENT) setClient(null);
     });
+  }, [client]);
+
+  // App-wide (not per-tab) so thread notifications fire from any tab.
+  useEffect(() => {
+    if (!client) return;
+    return watchThreadNotifications(client);
   }, [client]);
 
   if (restoring && !client) {

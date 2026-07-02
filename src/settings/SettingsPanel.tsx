@@ -9,6 +9,7 @@ import {
   type WebPrefs,
   type WebTheme,
 } from "./webPrefs";
+import { requestNotificationPermission } from "../notifications";
 
 type Props = { client: BridgeClient; onDisconnect: () => void };
 
@@ -127,6 +128,36 @@ export function SettingsPanel({ client, onDisconnect }: Props) {
           </button>
         </div>
         <p className="hint">zi / zo in the Terminals tab switch wrapping per session.</p>
+      </section>
+
+      <section className="settings-group">
+        <h3>Notifications · this device</h3>
+        <div className="setting-row">
+          <span className="setting-label">Thread notifications</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={prefs.notifications}
+            className={`toggle${prefs.notifications ? " on" : ""}`}
+            onClick={async () => {
+              if (!prefs.notifications) {
+                const granted = await requestNotificationPermission();
+                if (!granted) {
+                  setError(
+                    "Notifications are blocked by the browser — allow them for this site first.",
+                  );
+                  return;
+                }
+              }
+              updatePrefs({ notifications: !prefs.notifications });
+            }}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
+        <p className="hint">
+          Notifies when a thread needs your decision, finishes, or fails.
+        </p>
       </section>
 
       {settings ? (

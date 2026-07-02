@@ -30,6 +30,10 @@ export class BridgeClient {
   private reqId = 0;
   private handlers = new Set<BridgeEventHandler>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  // The socket a `resume` last succeeded on: RPCs on any other socket must
+  // re-resume first, or the server rejects them as unauthenticated.
+  private resumedOn: WebSocket | null = null;
   sessionId: string | null = null;
   pairResult: PairResult | null = null;
 
@@ -84,13 +88,35 @@ export class BridgeClient {
     this.sessionId = null;
     this.pairResult = null;
     this.clearStored();
+    this.stopKeepalive();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     this.ws?.close();
     this.ws = null;
+    this.resumedOn = null;
     this.emit(SESSION_LOST_EVENT, null);
+  }
+
+  // App-level keepalive: browsers can't send WS ping frames, and idle sockets
+  // get closed by phone radios / tunnel proxies after a minute or two. A tiny
+  // RPC every 25s keeps the link warm; if it fails, `call` already falls into
+  // the reconnect+resume path.
+  private startKeepalive() {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => {
+      if (this.sessionId && this.ws?.readyState === WebSocket.OPEN) {
+        this.call("ping").catch(() => undefined);
+      }
+    }, 25_000);
+  }
+
+  private stopKeepalive() {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
   }
 
   get url() {
@@ -133,16 +159,22 @@ export class BridgeClient {
       };
       ws.onerror = () => reject(new Error("WebSocket connection failed"));
       ws.onclose = () => {
-        this.ws = null;
+        if (this.ws === ws) this.ws = null;
+        if (this.resumedOn === ws) this.resumedOn = null;
         if (this.sessionId) {
           this.reconnectTimer = setTimeout(() => {
-            // Re-bind to the existing session after reconnecting; the server now
-            // requires an authenticated session for every non-pair call. If the
-            // resume is rejected the session is gone (revoked/expired) — return
-            // to pairing instead of looping forever.
+            // Re-bind to the existing session after reconnecting. Only an
+            // explicit server rejection of `resume` means the session is gone
+            // (revoked/expired); a network failure keeps the session and the
+            // next close/`call` retries, so a spotty link never forces a
+            // re-scan of the QR code.
             this.connect()
-              .then(() => this.resume())
-              .catch(() => this.handleSessionLost());
+              .then(() =>
+                this.resume().catch(() => this.handleSessionLost()),
+              )
+              .catch(() => {
+                /* still offline — onclose of the failed socket reschedules */
+              });
           }, 2000);
         }
       };
@@ -176,15 +208,14 @@ export class BridgeClient {
     this.sessionId = null;
     this.pairResult = null;
     this.clearStored();
+    this.stopKeepalive();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.ws?.close();
     this.ws = null;
+    this.resumedOn = null;
   }
 
-  async call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      await this.connect();
-    }
+  private rawCall<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
     const id = ++this.reqId;
     const req: JsonRpcRequest = { id, method, params };
     return new Promise((resolve, reject) => {
@@ -196,20 +227,43 @@ export class BridgeClient {
     });
   }
 
+  async call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+    // A freshly (re)connected socket is unauthenticated: resume the session
+    // first or the server rejects the call and the UI misreads it as fatal.
+    if (
+      this.sessionId &&
+      this.ws &&
+      this.resumedOn !== this.ws &&
+      method !== "pair" &&
+      method !== "resume"
+    ) {
+      await this.resume();
+    }
+    return this.rawCall<T>(method, params);
+  }
+
   async pair(token: string): Promise<PairResult> {
     const result = (await this.call("pair", { token })) as PairResult;
     this.sessionId = result.session_id;
     this.pairResult = result;
+    this.resumedOn = this.ws;
     if (result.bridge_wss) {
       this.setBridgeWss(result.bridge_wss);
     }
     this.persist();
+    this.startKeepalive();
     return result;
   }
 
   // Re-authenticate a reconnected socket to the existing session (no re-pair).
   async resume(): Promise<void> {
     if (!this.sessionId) return;
-    await this.call("resume", { session_id: this.sessionId });
+    const ws = this.ws;
+    await this.rawCall("resume", { session_id: this.sessionId });
+    this.resumedOn = ws;
+    this.startKeepalive();
   }
 }

@@ -52,6 +52,18 @@ export function TerminalsPanel({ client }: Props) {
     }
   };
 
+  const createTerminal = async () => {
+    try {
+      await client.call("terminals.create");
+      // Spawn is async on the IDE side — refresh now and again shortly after
+      // so the chip appears once the instance is up.
+      refreshTerminals();
+      setTimeout(refreshTerminals, 1200);
+    } catch {
+      /* IDE busy — user can retry */
+    }
+  };
+
   const flushKeys = (keys: string) => {
     if (!keys) return;
     client.call("editor.key", { keys }).catch(() => undefined);
@@ -79,6 +91,10 @@ export function TerminalsPanel({ client }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // The hidden textarea sits inside the panel div and both bind this
+    // handler — without stopPropagation every key bubbles up and is sent
+    // twice (Backspace showed up as ^?^?).
+    e.stopPropagation();
     if (e.key.length === 1) {
       e.preventDefault();
       pushKey(e.key);
@@ -90,6 +106,12 @@ export function TerminalsPanel({ client }: Props) {
     } else if (e.key === "Backspace") {
       e.preventDefault();
       flushKeys("<BS>");
+    } else if (e.key === "Delete") {
+      e.preventDefault();
+      flushKeys("<Del>");
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      flushKeys("<Tab>");
     } else if (e.key === "Escape") flushKeys("<Esc>");
     else if (e.key === "ArrowUp") flushKeys("<Up>");
     else if (e.key === "ArrowDown") flushKeys("<Down>");
@@ -142,6 +164,14 @@ export function TerminalsPanel({ client }: Props) {
         {terminals.length === 0 && (
           <p className="hint">No terminals open in the IDE.</p>
         )}
+        <button
+          type="button"
+          className="ghost terminal-refresh"
+          onClick={createTerminal}
+          title="New terminal"
+        >
+          +
+        </button>
         <button type="button" className="ghost terminal-refresh" onClick={refreshTerminals}>
           ↻
         </button>

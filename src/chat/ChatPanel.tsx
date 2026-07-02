@@ -5,8 +5,35 @@ import type {
   BridgeSettings,
   ChatThreadSnapshot,
 } from "@protocol/schema";
+import { threadStateColor, THREAD_STATES } from "../notifications";
 
 type Props = { client: BridgeClient };
+
+// Compact inline icons for the pill bar — replaces the MODE/PROVIDER/… text.
+function PillIcon({ d, title }: { d: string; title: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-label={title} className="pill-icon">
+      <title>{title}</title>
+      <path d={d} />
+    </svg>
+  );
+}
+
+const ICON_PATHS = {
+  // sliders → mode
+  mode: "M4 6h10a3 3 0 1 0 0-2H4a1 1 0 1 0 0 2Zm16-2h-2a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2ZM4 13h2a3 3 0 1 0 0-2H4a1 1 0 1 0 0 2Zm16-2H10a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2ZM4 20h10a3 3 0 1 0 0-2H4a1 1 0 1 0 0 2Zm16-2h-2a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2Z",
+  // cpu chip → provider
+  provider:
+    "M9 2a1 1 0 0 1 2 0v2h2V2a1 1 0 1 1 2 0v2h1a3 3 0 0 1 3 3v1h2a1 1 0 1 1 0 2h-2v2h2a1 1 0 1 1 0 2h-2v1a3 3 0 0 1-3 3h-1v2a1 1 0 1 1-2 0v-2h-2v2a1 1 0 1 1-2 0v-2H8a3 3 0 0 1-3-3v-1H3a1 1 0 1 1 0-2h2v-2H3a1 1 0 1 1 0-2h2V7a3 3 0 0 1 3-3h1V2Zm0 7a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H9Z",
+  // sparkle → model
+  model:
+    "M12 3l1.7 4.6a3 3 0 0 0 1.8 1.8L20 11l-4.5 1.7a3 3 0 0 0-1.8 1.8L12 19l-1.7-4.5a3 3 0 0 0-1.8-1.8L4 11l4.5-1.6a3 3 0 0 0 1.8-1.8L12 3ZM5 18l.8 2.2L8 21l-2.2.8L5 24l-.8-2.2L2 21l2.2-.8L5 18Z",
+  // stacked layers → env
+  env: "M12 3l9 4.5-9 4.5-9-4.5L12 3Zm-6.7 8.1L12 14.4l6.7-3.3L21 12l-9 4.5L3 12l2.3-.9Zm0 4.5L12 18.9l6.7-3.3L21 16.5 12 21l-9-4.5 2.3-.9Z",
+  // git branch → branch
+  branch:
+    "M7 3a3 3 0 0 1 1 5.83v6.34a3 3 0 1 1-2 0V8.83A3 3 0 0 1 7 3Zm10 0a3 3 0 0 1 1 5.83c-.2 3.14-2.6 4.6-5.4 5.06a3 3 0 1 1-.34-1.98c2.3-.4 3.55-1.42 3.74-3.1A3 3 0 0 1 17 3Z",
+} as const;
 
 export function ChatPanel({ client }: Props) {
   const [threads, setThreads] = useState<ChatThreadSnapshot[]>([]);
@@ -19,7 +46,10 @@ export function ChatPanel({ client }: Props) {
   const [showThreads, setShowThreads] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attaching, setAttaching] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     client
@@ -115,16 +145,22 @@ export function ChatPanel({ client }: Props) {
   };
 
   const send = async () => {
-    if (!query.trim() || sending) return;
+    if ((!query.trim() && attachments.length === 0) || sending) return;
     setSending(true);
     setStreaming("…");
     try {
+      let text = query.trim();
+      if (attachments.length > 0) {
+        const listing = attachments.map((p) => `- ${p}`).join("\n");
+        text = `${text}\n\nAttached context files:\n${listing}`.trim();
+      }
       await callSafe("chat.send", {
-        query: query.trim(),
+        query: text,
         mode: settings?.mode ?? "agent",
         thread_id: active?.id,
       });
       setQuery("");
+      setAttachments([]);
       const t = (await client.call("chat.threads")) as ChatThreadSnapshot[];
       setThreads(t);
     } finally {
@@ -133,15 +169,55 @@ export function ChatPanel({ client }: Props) {
     }
   };
 
+  // Upload files/photos from the phone into the workspace's .claw-context dir;
+  // the returned paths ride along with the next message.
+  const attachFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAttaching(true);
+    setError("");
+    try {
+      for (const file of Array.from(files)) {
+        const buf = await file.arrayBuffer();
+        let binary = "";
+        const bytes = new Uint8Array(buf);
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+        }
+        const res = (await client.call("chat.attach", {
+          name: file.name,
+          data_base64: btoa(binary),
+        })) as { path?: string };
+        if (res?.path) setAttachments((a) => [...a, res.path!]);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const respondApproval = async (id: string, approved: boolean) => {
     await callSafe(approved ? "chat.approve" : "chat.deny", { id });
   };
+
+  const statusDot = (status: string) => (
+    <span
+      className="status-dot"
+      title={THREAD_STATES[status]?.label ?? status}
+      style={{ background: threadStateColor(status) }}
+    />
+  );
 
   const threadRow = (t: ChatThreadSnapshot) => (
     <div key={t.id} className={`thread-row${t.id === active?.id ? " selected" : ""}`}>
       <button type="button" className="thread-title" onClick={() => selectThread(t.id)}>
         <span>{t.title}</span>
-        <span className="thread-status">{t.status}</span>
+        <span className="thread-status">
+          {statusDot(t.status)}
+          {THREAD_STATES[t.status]?.label ?? t.status}
+        </span>
       </button>
       <div className="thread-actions">
         <button type="button" className="ghost" onClick={() => renameThread(t)} title="Rename">
@@ -170,7 +246,12 @@ export function ChatPanel({ client }: Props) {
         </button>
         <div className="chat-title">
           <strong>{active?.title ?? "No thread"}</strong>
-          {active && <span className="thread-status">{active.status}</span>}
+          {active && (
+            <span className="thread-status">
+              {statusDot(active.status)}
+              {THREAD_STATES[active.status]?.label ?? active.status}
+            </span>
+          )}
         </div>
         <button type="button" className="ghost" onClick={newThread}>
           New
@@ -236,7 +317,7 @@ export function ChatPanel({ client }: Props) {
         {settings && (
           <div className="pill-bar">
             <label className="pill">
-              <span className="pill-label">Mode</span>
+              <PillIcon d={ICON_PATHS.mode} title="Mode" />
               <select
                 value={settings.mode}
                 onChange={(e) => applySettings({ mode: e.target.value })}
@@ -247,7 +328,7 @@ export function ChatPanel({ client }: Props) {
               </select>
             </label>
             <label className="pill">
-              <span className="pill-label">Provider</span>
+              <PillIcon d={ICON_PATHS.provider} title="Provider" />
               <select
                 value={settings.provider_id}
                 onChange={(e) => applySettings({ provider_id: e.target.value })}
@@ -260,7 +341,7 @@ export function ChatPanel({ client }: Props) {
               </select>
             </label>
             <label className="pill">
-              <span className="pill-label">Model</span>
+              <PillIcon d={ICON_PATHS.model} title="Model" />
               <select
                 value={settings.model_id}
                 disabled={settings.models.length === 0}
@@ -274,7 +355,7 @@ export function ChatPanel({ client }: Props) {
               </select>
             </label>
             <label className="pill">
-              <span className="pill-label">Env</span>
+              <PillIcon d={ICON_PATHS.env} title="Environment" />
               <select
                 value={settings.environment}
                 onChange={(e) => applySettings({ environment: e.target.value })}
@@ -285,7 +366,7 @@ export function ChatPanel({ client }: Props) {
               </select>
             </label>
             <label className="pill">
-              <span className="pill-label">Branch</span>
+              <PillIcon d={ICON_PATHS.branch} title="Branch" />
               <select
                 value={settings.selected_branch ?? ""}
                 onChange={(e) => applySettings({ selected_branch: e.target.value })}
@@ -304,7 +385,45 @@ export function ChatPanel({ client }: Props) {
             </label>
           </div>
         )}
-        <div className="composer-row">
+        {attachments.length > 0 && (
+          <div className="attachment-chips">
+            {attachments.map((p) => (
+              <span key={p} className="attachment-chip">
+                {p.split(/[\\/]/).pop()}
+                <button
+                  type="button"
+                  className="attachment-remove"
+                  onClick={() =>
+                    setAttachments((a) => a.filter((x) => x !== p))
+                  }
+                  aria-label="Remove attachment"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="composer-box">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => void attachFiles(e.target.files)}
+          />
+          <button
+            type="button"
+            className="composer-icon attach"
+            disabled={attaching}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Add context from this device"
+            title="Add context (files, photos)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1Z" />
+            </svg>
+          </button>
           <textarea
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -314,23 +433,35 @@ export function ChatPanel({ client }: Props) {
                 void send();
               }
             }}
-            placeholder="Ask the assistant…"
+            placeholder={attaching ? "Uploading…" : "Ask the assistant…"}
             rows={2}
           />
-          <div className="composer-buttons">
-            <button type="button" onClick={send} disabled={sending || !query.trim()}>
-              Send
+          {active?.status === "Running" ? (
+            <button
+              type="button"
+              className="composer-icon stop"
+              onClick={() => callSafe("chat.stop", { thread_id: active?.id })}
+              aria-label="Stop"
+              title="Stop"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
+              </svg>
             </button>
-            {active?.status === "Running" && (
-              <button
-                type="button"
-                className="ghost danger"
-                onClick={() => callSafe("chat.stop", { thread_id: active?.id })}
-              >
-                Stop
-              </button>
-            )}
-          </div>
+          ) : (
+            <button
+              type="button"
+              className="composer-icon send"
+              onClick={send}
+              disabled={sending || (!query.trim() && attachments.length === 0)}
+              aria-label="Send"
+              title="Send"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3.4 20.4 21.2 12 3.4 3.6v6.5L15 12 3.4 13.9v6.5Z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -109,9 +109,11 @@ export default function App() {
 
   if (restoring && !client) {
     return (
-      <div className="panel">
-        <h2>Reconnecting…</h2>
-        <p className="hint">Resuming your paired session.</p>
+      <div className="pairing-screen">
+        <div className="pairing-card">
+          <h1>Reconnecting…</h1>
+          <p className="hint pairing-sub">Resuming your paired session.</p>
+        </div>
       </div>
     );
   }

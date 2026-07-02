@@ -182,66 +182,85 @@ export function PairingScreen({ onPaired }: Props) {
   const usingTunnel = Boolean(bridgeWss.trim());
 
   return (
-    <div className="panel">
-      <h2>Pair with IDE</h2>
-      <p className="hint">
-        In the IDE, open Settings → Remote and enable the bridge, then scan its QR here.
-      </p>
-      {canScanInTelegram && (
-        <button type="button" disabled={busy} onClick={scanWithTelegram}>
-          {busy ? "Connecting…" : "Scan QR"}
-        </button>
-      )}
-      <details open={!canScanInTelegram}>
-        <summary className="hint">Manual pairing</summary>
-        <textarea
-          placeholder="Paste QR contents (URL or JSON) from IDE, or scan with your camera app"
-          value={qrRaw}
-          onChange={(e) => setQrRaw(e.target.value)}
-          onBlur={() => applyQr()}
-          rows={3}
-        />
-        <button type="button" onClick={() => applyQr()}>
-          Parse QR
-        </button>
-        {usingTunnel ? (
-          <p className="hint">
-            {offLanReady
-              ? "Secure off-LAN tunnel detected — tap Connect."
-              : "Tunnel starting on IDE… connect may work on retry in ~10s."}
-          </p>
-        ) : (
-          <p className="hint">LAN mode — same WiFi as your PC.</p>
+    <div className="pairing-screen">
+      <div className="pairing-card">
+        <div className="pairing-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6v1.5h2a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h2V17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm2.6 4.2a1 1 0 0 0-.1 1.5L8.4 11.5 6.5 13.3a1 1 0 1 0 1.4 1.5l2.7-2.6a1 1 0 0 0 0-1.4L7.9 8.2a1 1 0 0 0-1.3 0ZM12 13a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2h-4Z" />
+          </svg>
+        </div>
+        <h1>NeoCode Remote</h1>
+        <p className="hint pairing-sub">
+          Control your IDE from this device. Open <strong>Settings → Remote</strong> in
+          the IDE, enable the bridge, then scan its QR.
+        </p>
+
+        {canScanInTelegram && (
+          <button
+            type="button"
+            className="pairing-scan"
+            disabled={busy}
+            onClick={scanWithTelegram}
+          >
+            {busy ? "Connecting…" : "Scan QR"}
+          </button>
         )}
-        {!usingTunnel && (
-          <>
+
+        <details className="pairing-manual" open={!canScanInTelegram}>
+          <summary>Manual pairing</summary>
+          <div className="pairing-manual-body">
+            <textarea
+              placeholder="Paste QR contents (URL or JSON) from IDE, or scan with your camera app"
+              value={qrRaw}
+              onChange={(e) => setQrRaw(e.target.value)}
+              onBlur={() => applyQr()}
+              rows={3}
+            />
+            <button type="button" className="ghost" onClick={() => applyQr()}>
+              Parse QR
+            </button>
+            {usingTunnel ? (
+              <p className="hint">
+                {offLanReady
+                  ? "Secure off-LAN tunnel detected — tap Connect."
+                  : "Tunnel starting on IDE… connect may work on retry in ~10s."}
+              </p>
+            ) : (
+              <p className="hint">LAN mode — same WiFi as your PC.</p>
+            )}
+            {!usingTunnel && (
+              <div className="row">
+                <label>
+                  Host
+                  <input
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    placeholder="192.168.x.x"
+                  />
+                </label>
+                <label className="pairing-port">
+                  Port
+                  <input value={port} onChange={(e) => setPort(e.target.value)} />
+                </label>
+              </div>
+            )}
             <label>
-              Host
+              Token
               <input
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder="192.168.x.x"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="6-digit OTP"
+                inputMode="numeric"
               />
             </label>
-            <label>
-              Port
-              <input value={port} onChange={(e) => setPort(e.target.value)} />
-            </label>
-          </>
-        )}
-        <label>
-          Token
-          <input
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="6-digit OTP"
-          />
-        </label>
-        <button type="button" disabled={busy || !token} onClick={pair}>
-          {busy ? "Connecting…" : "Connect"}
-        </button>
-      </details>
-      {error && <p className="error">{error}</p>}
+            <button type="button" disabled={busy || !token} onClick={pair}>
+              {busy ? "Connecting…" : "Connect"}
+            </button>
+          </div>
+        </details>
+
+        {error && <p className="error pairing-error">{error}</p>}
+      </div>
     </div>
   );
 }

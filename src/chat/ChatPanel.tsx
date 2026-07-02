@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client";
-import type { ApprovalSnapshot, ChatThreadSnapshot } from "@protocol/schema";
+import type {
+  ApprovalSnapshot,
+  BridgeSettings,
+  ChatThreadSnapshot,
+} from "@protocol/schema";
 
 type Props = { client: BridgeClient };
 
@@ -9,7 +13,7 @@ export function ChatPanel({ client }: Props) {
   const [approvals, setApprovals] = useState<ApprovalSnapshot[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<"plan" | "edit" | "agent">("agent");
+  const [settings, setSettings] = useState<BridgeSettings | null>(null);
   const [streaming, setStreaming] = useState("");
   const [sending, setSending] = useState(false);
   const [showThreads, setShowThreads] = useState(false);
@@ -25,6 +29,10 @@ export function ChatPanel({ client }: Props) {
         setActiveId((id) => id ?? t.find((th) => th.active)?.id ?? null);
       })
       .catch(() => undefined);
+    client
+      .call<BridgeSettings>("settings.get")
+      .then(setSettings)
+      .catch(() => undefined);
     return client.on((event, data) => {
       if (event === "chat.progress") {
         const p = data as { message?: string; response?: string };
@@ -32,8 +40,20 @@ export function ChatPanel({ client }: Props) {
       }
       if (event === "chat.threads") setThreads(data as ChatThreadSnapshot[]);
       if (event === "chat.approvals") setApprovals(data as ApprovalSnapshot[]);
+      if (event === "settings.changed") setSettings(data as BridgeSettings);
     });
   }, [client]);
+
+  // Pill bar — mirrors the IDE AI overlay: mode / provider / model / env / branch.
+  const applySettings = async (patch: Record<string, unknown>) => {
+    setError("");
+    try {
+      const next = await client.call<BridgeSettings>("settings.set", patch);
+      setSettings(next);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const visibleThreads = useMemo(
     () => threads.filter((t) => !t.archived),
@@ -101,7 +121,7 @@ export function ChatPanel({ client }: Props) {
     try {
       await callSafe("chat.send", {
         query: query.trim(),
-        mode,
+        mode: settings?.mode ?? "agent",
         thread_id: active?.id,
       });
       setQuery("");
@@ -213,18 +233,77 @@ export function ChatPanel({ client }: Props) {
       </div>
 
       <div className="composer">
-        <div className="mode-chips">
-          {(["plan", "edit", "agent"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`chip${mode === m ? " active" : ""}`}
-              onClick={() => setMode(m)}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+        {settings && (
+          <div className="pill-bar">
+            <label className="pill">
+              <span className="pill-label">Mode</span>
+              <select
+                value={settings.mode}
+                onChange={(e) => applySettings({ mode: e.target.value })}
+              >
+                <option value="plan">Plan</option>
+                <option value="edit">Edit</option>
+                <option value="agent">Agent</option>
+              </select>
+            </label>
+            <label className="pill">
+              <span className="pill-label">Provider</span>
+              <select
+                value={settings.provider_id}
+                onChange={(e) => applySettings({ provider_id: e.target.value })}
+              >
+                {settings.providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pill">
+              <span className="pill-label">Model</span>
+              <select
+                value={settings.model_id}
+                disabled={settings.models.length === 0}
+                onChange={(e) => applySettings({ model_id: e.target.value })}
+              >
+                {settings.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pill">
+              <span className="pill-label">Env</span>
+              <select
+                value={settings.environment}
+                onChange={(e) => applySettings({ environment: e.target.value })}
+              >
+                <option value="local">Local</option>
+                <option value="cloud">Cloud</option>
+                <option value="new_worktree">Worktree</option>
+              </select>
+            </label>
+            <label className="pill">
+              <span className="pill-label">Branch</span>
+              <select
+                value={settings.selected_branch ?? ""}
+                onChange={(e) => applySettings({ selected_branch: e.target.value })}
+              >
+                <option value="">
+                  {settings.current_branch
+                    ? `${settings.current_branch} (current)`
+                    : "current"}
+                </option>
+                {settings.branches.map((b) => (
+                  <option key={b} value={b}>
+                    {b === settings.current_branch ? `${b} (current)` : b}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         <div className="composer-row">
           <textarea
             value={query}

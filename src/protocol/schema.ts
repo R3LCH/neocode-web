@@ -55,6 +55,16 @@ export type EditorGridEvent = {
   cursor_row: number;
   cursor_col: number;
   mode_text: string;
+  terminal_id: number;
+};
+
+export type TerminalSnapshot = {
+  id: number;
+  name: string;
+  kind: string;
+  active: boolean;
+  viewed: boolean;
+  running: boolean;
 };
 
 export type ChatThreadSnapshot = {

@@ -1,14 +1,53 @@
-:root {
-  --bg: var(--tg-theme-bg-color, #141418);
-  --bg-secondary: var(--tg-theme-secondary-bg-color, #1a1a22);
-  --surface: var(--tg-theme-section-bg-color, #1e1e26);
-  --text: var(--tg-theme-text-color, #ececf0);
-  --text-muted: var(--tg-theme-hint-color, #8d8d96);
-  --accent: var(--tg-theme-button-color, #3d5afe);
-  --accent-text: var(--tg-theme-button-text-color, #ffffff);
-  --link: var(--tg-theme-link-color, #7aa2f7);
-  --danger: #e5484d;
+/* Web-app themes — independent of the desktop IDE and of Telegram's palette.
+   The active theme is set by webPrefs.applyPrefs() via data-theme on <html>;
+   --accent is injected there too. Midnight is the default. */
+:root,
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --bg: #0b0d13;
+  --bg-secondary: #121522;
+  --surface: #181c2c;
+  --surface-raised: #1f2436;
+  --text: #e9ecf5;
+  --text-muted: #8b91a7;
+  --accent: #6c8cff;
+  --accent-text: #ffffff;
+  --link: #8fb0ff;
+  --danger: #ef5b62;
+  --success: #4fd6a5;
+  --border: color-mix(in srgb, var(--text) 12%, transparent);
+  --term-bg: #070910;
+}
+
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #141416;
+  --bg-secondary: #1b1b1f;
+  --surface: #212127;
+  --surface-raised: #2a2a31;
+  --text: #ececee;
+  --text-muted: #97979f;
+  --link: #a8b6d8;
+  --danger: #ef5b62;
+  --success: #57c793;
+  --border: color-mix(in srgb, var(--text) 12%, transparent);
+  --term-bg: #0e0e10;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f9;
+  --bg-secondary: #ffffff;
+  --surface: #ffffff;
+  --surface-raised: #eef0f6;
+  --text: #1d2333;
+  --text-muted: #5f6880;
+  --accent-text: #ffffff;
+  --link: #3b64d8;
+  --danger: #cf3a41;
+  --success: #1f9a6e;
   --border: color-mix(in srgb, var(--text) 14%, transparent);
+  --term-bg: #10131c;
 }
 
 body {
@@ -26,31 +65,42 @@ body {
   height: var(--vvh, 100dvh);
 }
 
+/* Bottom tab bar: icon + label, thumb-reachable, safe-area aware. */
 .tabs {
   display: flex;
-  gap: 4px;
-  padding: 8px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-  position: sticky;
-  top: 0;
+  gap: 2px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  backdrop-filter: blur(10px);
   z-index: 10;
 }
 
 .tabs button {
-  flex-shrink: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  font-size: 0.68rem;
   font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.tabs button svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
 }
 
 .tabs button.active {
-  background: var(--accent);
-  color: var(--accent-text);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .content {
@@ -244,6 +294,7 @@ button.ghost.danger {
 
 .msg {
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px 12px;
   max-width: 92%;
@@ -282,9 +333,46 @@ button.ghost.danger {
   padding-top: 4px;
 }
 
-.mode-chips {
+/* Pill bar above the composer — mirrors the IDE overlay's toolbar. */
+.pill-bar {
   display: flex;
   gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.pill-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.pill {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 6px 4px 10px;
+}
+
+.pill-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.pill select {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 2px 2px;
+  font-size: 0.8rem;
+  max-width: 34vw;
+  text-overflow: ellipsis;
 }
 
 .chip {
@@ -354,27 +442,186 @@ button.ghost.danger {
 
 .settings-group h3 {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .workspace-path {
   word-break: break-all;
 }
 
-/* ---------- editor / preview / remote ---------- */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.setting-label {
+  font-size: 0.9rem;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px;
+}
+
+.segmented button {
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  padding: 0;
+  border: 2px solid transparent;
+}
+
+.swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.toggle {
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+}
+
+.toggle-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.toggle.on {
+  background: color-mix(in srgb, var(--accent) 35%, var(--bg-secondary));
+  border-color: var(--accent);
+}
+
+.toggle.on .toggle-knob {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
+/* ---------- terminals ---------- */
+
+.terminals-panel {
+  gap: 8px;
+  outline: none;
+}
+
+.terminal-chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.terminal-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+
+.terminal-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.terminal-dot.running {
+  background: var(--success);
+}
+
+.terminal-kind {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.terminal-refresh {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keys-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
 
 .grid-view {
   display: grid;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.2;
-  overflow: auto;
-  background: #0a0a0e;
   padding: 8px;
-  border-radius: 8px;
+  width: max-content;
 }
 
 .cell {
@@ -385,25 +632,47 @@ button.ghost.danger {
   background: #33467a;
 }
 
-.zoom-view {
-  font-size: 1.25rem;
-  line-height: 1.5;
+/* Wrapped terminal view (default): long lines flow onto the next line. */
+.wrap-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  background: #0a0a0e;
+  color: #dde3f0;
+  background: var(--term-bg);
   padding: 12px;
-  border-radius: 8px;
-  min-height: 40vh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* Off-screen key sink that summons the mobile soft keyboard. */
+.term-kbd {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
 }
 
 .preview-text {
   font-size: 0.75rem;
   max-height: 40vh;
   overflow: auto;
-  background: #0a0a0e;
+  background: var(--term-bg);
   padding: 8px;
   border-radius: 8px;
 }
+
+/* ---------- remote ---------- */
 
 /* Remote panel: the screen fills the whole panel; controls float on top of it.
    The panel (.panel) is a definite-height flex column, so the stage's flex:1

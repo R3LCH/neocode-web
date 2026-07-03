@@ -60,6 +60,8 @@ export function ChatPanel({ client }: Props) {
   const [shellGrid, setShellGrid] = useState<EditorGridEvent | null>(null);
   const [shellProbe, setShellProbe] = useState(0);
   const shellIdRef = useRef<number | null>(null);
+  // Text currently sitting on the shell's prompt line (what we've forwarded).
+  const shellTypedRef = useRef("");
   const shellViewRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -138,6 +140,33 @@ export function ChatPanel({ client }: Props) {
     const el = shellViewRef.current?.querySelector(".wrap-view");
     if (el) el.scrollTop = el.scrollHeight;
   }, [shellGrid]);
+
+  // Mirror the desktop composer: type into the shell as you type here, so
+  // Claude Code's interactive UI (the "/" command menu, prompts) reacts live.
+  // Backspaces over the differing tail, then types the new suffix — the same
+  // requests stay ordered because the bridge handles them sequentially.
+  const forwardShellText = (next: string) => {
+    if (shellIdRef.current === null) return;
+    const old = shellTypedRef.current;
+    if (next === old) return;
+    let common = 0;
+    while (common < old.length && common < next.length && old[common] === next[common]) {
+      common++;
+    }
+    shellTypedRef.current = next;
+    for (let i = 0; i < old.length - common; i++) {
+      client.call("editor.key", { keys: "<BS>" }).catch(() => undefined);
+    }
+    const suffix = next.slice(common);
+    if (suffix) client.call("editor.key", { keys: suffix }).catch(() => undefined);
+  };
+
+  useEffect(() => {
+    if (!claudeShell) return;
+    const timer = setTimeout(() => forwardShellText(query), 150);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, claudeShell]);
 
   // Pill bar — mirrors the IDE AI overlay: mode / provider / model / env / branch.
   const applySettings = async (patch: Record<string, unknown>) => {
@@ -218,6 +247,16 @@ export function ChatPanel({ client }: Props) {
       if (attachments.length > 0) {
         const listing = attachments.map((p) => `- ${p}`).join("\n");
         text = `${text}\n\nAttached context files:\n${listing}`.trim();
+      }
+      if (claudeShell && shellIdRef.current !== null) {
+        // The prompt is already (mostly) typed into the shell — sync any
+        // remainder and submit. chat.send would retype the whole line.
+        forwardShellText(text);
+        await callSafe("editor.key", { keys: "\n" });
+        shellTypedRef.current = "";
+        setQuery("");
+        setAttachments([]);
+        return;
       }
       await callSafe("chat.send", {
         query: text,

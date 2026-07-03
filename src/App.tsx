@@ -7,6 +7,7 @@ import { TerminalsPanel } from "./terminals/TerminalsPanel";
 import { RemotePanel } from "./remote/RemotePanel";
 import { SettingsPanel } from "./settings/SettingsPanel";
 import { applyPrefs, loadPrefs } from "./settings/webPrefs";
+import { useKeyboard } from "./shell/useKeyboard";
 import { watchThreadNotifications } from "./notifications";
 import "./shell/App.css";
 
@@ -55,6 +56,7 @@ export default function App() {
   const [client, setClient] = useState<BridgeClient | null>(null);
   const [tab, setTab] = useState<Tab>("chat");
   const [restoring, setRestoring] = useState(true);
+  const keyboard = useKeyboard();
 
   useEffect(() => {
     applyPrefs(loadPrefs());
@@ -141,7 +143,9 @@ export default function App() {
           />
         )}
       </main>
-      <nav className="tabs">
+      {/* In layout-resizing webviews the keyboard shoves the tab bar up above
+          itself — hide it while typing instead. */}
+      <nav className="tabs" style={keyboard.open ? { display: "none" } : undefined}>
         {TABS.map((t) => (
           <button
             key={t.id}

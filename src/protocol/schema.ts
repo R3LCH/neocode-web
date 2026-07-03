@@ -48,6 +48,12 @@ export type EditorKeyParams = { keys: string };
 export type EditorResizeParams = { width: number; height: number };
 
 export type GridCell = { text: string; hl_id: number };
+export type GridHighlight = {
+  fg?: string;
+  bg?: string;
+  bold?: boolean;
+  italic?: boolean;
+};
 export type EditorGridEvent = {
   width: number;
   height: number;
@@ -56,6 +62,8 @@ export type EditorGridEvent = {
   cursor_col: number;
   mode_text: string;
   terminal_id: number;
+  /** Highlight ids used in `cells` → colors. Absent on older desktops. */
+  highlights?: Record<number, GridHighlight>;
 };
 
 export type TerminalSnapshot = {

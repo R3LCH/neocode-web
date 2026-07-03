@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client";
 import type { EditorGridEvent, TerminalSnapshot } from "@protocol/schema";
 import { loadPrefs } from "../settings/webPrefs";
+import { useKeyboard } from "../shell/useKeyboard";
 import { GridWrapView, gridLines } from "./GridWrapView";
 
 type ViewMode = "wrap" | "grid";
@@ -26,9 +27,9 @@ export function TerminalsPanel({ client }: Props) {
   );
   const [pendingKeys, setPendingKeys] = useState("");
   const [kbdFocused, setKbdFocused] = useState(false);
-  // Height of the on-screen keyboard (layout viewport minus visual viewport),
-  // so the floating status bar can sit right above it.
-  const [keyboardInset, setKeyboardInset] = useState(0);
+  // Soft-keyboard state: `open` gates the floating status bar, `inset` is its
+  // `bottom:` offset (0 in browsers that shrink the layout viewport instead).
+  const keyboard = useKeyboard();
   const pendingRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kbdRef = useRef<HTMLTextAreaElement | null>(null);
@@ -47,24 +48,6 @@ export function TerminalsPanel({ client }: Props) {
       if (event === "editor.grid") setGrid(data as EditorGridEvent);
     });
   }, [client, refreshTerminals]);
-
-  // Track how much of the window the soft keyboard covers (visualViewport
-  // shrinks; fixed elements keep layout-viewport coordinates).
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () =>
-      setKeyboardInset(
-        Math.max(0, window.innerHeight - vv.height - vv.offsetTop),
-      );
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    update();
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
 
   const viewTerminal = async (id: number) => {
     try {
@@ -274,31 +257,41 @@ export function TerminalsPanel({ client }: Props) {
               gridTemplateRows: `repeat(${grid.height}, 1.2em)`,
             }}
           >
-            {grid.cells.map((cell, i) => (
-              <span
-                key={i}
-                className={
-                  Math.floor(i / grid.width) === grid.cursor_row &&
-                  i % grid.width === grid.cursor_col
-                    ? "cell cursor"
-                    : "cell"
-                }
-                style={{ color: HL_COLORS[cell.hl_id % 6] ?? HL_COLORS[0] }}
-              >
-                {cell.text || " "}
-              </span>
-            ))}
+            {grid.cells.map((cell, i) => {
+              // Real colors from the desktop when present; the old rotating
+              // palette only as a fallback for older desktop builds.
+              const h = grid.highlights?.[cell.hl_id];
+              return (
+                <span
+                  key={i}
+                  className={
+                    Math.floor(i / grid.width) === grid.cursor_row &&
+                    i % grid.width === grid.cursor_col
+                      ? "cell cursor"
+                      : "cell"
+                  }
+                  style={{
+                    color: h?.fg ?? HL_COLORS[cell.hl_id % 6] ?? HL_COLORS[0],
+                    backgroundColor: h?.bg,
+                    fontWeight: h?.bold ? 600 : undefined,
+                    fontStyle: h?.italic ? "italic" : undefined,
+                  }}
+                >
+                  {cell.text || " "}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* Floating nvim status/command line pinned above the soft keyboard so
           command-mode typing is visible while the keyboard covers the view.
-          keyboardInset > 0 gates on the keyboard actually being open: hiding
-          it with the system button keeps the textarea focused (no blur), and
-          the bar would otherwise drop to bottom: 0 over the tab bar. */}
-      {kbdFocused && grid && keyboardInset > 0 && (
-        <div className="kbd-statusbar" style={{ bottom: keyboardInset }}>
+          keyboard.open gates on the keyboard actually being up: hiding it with
+          the system button keeps the textarea focused (no blur), and the bar
+          would otherwise linger over the tab bar. */}
+      {kbdFocused && grid && keyboard.open && (
+        <div className="kbd-statusbar" style={{ bottom: keyboard.inset }}>
           <div className="kbd-statusbar-mode">
             <span>{grid.mode_text || "…"}</span>
             {pendingKeys && <span className="kbd-pending">{pendingKeys}</span>}

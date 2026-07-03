@@ -299,6 +299,14 @@ export function ChatPanel({ client }: Props) {
         </div>
       )}
 
+      {settings?.provider_id === "claude-code" && (
+        <p className="hint shell-hint">
+          Claude Code runs as an interactive shell on the desktop. Messages you
+          send here are typed straight into it — watch the session in the
+          Terminals tab (chip named “Claude Code Shell”).
+        </p>
+      )}
+
       <div className="messages">
         {active?.messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>

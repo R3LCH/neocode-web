@@ -66,5 +66,11 @@ export function watchThreadNotifications(client: BridgeClient): () => void {
 
   return client.on((event, data) => {
     if (event === "chat.threads") inspect(data as ChatThreadSnapshot[]);
+    // Scheduled jobs run headless on the desktop; the bridge relays their
+    // completion as a dedicated event since no live thread transition occurs.
+    if (event === "job.completed") {
+      const name = (data as { name?: string } | null)?.name ?? "Scheduled job";
+      notify(name, "Scheduled run finished");
+    }
   });
 }

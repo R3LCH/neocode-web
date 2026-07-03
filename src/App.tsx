@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import WebApp from "@twa-dev/sdk";
-import { BridgeClient, SESSION_LOST_EVENT } from "./bridge/client";
+import { BridgeClient, SESSION_LOST_EVENT, isSessionRejected } from "./bridge/client";
 import { PairingScreen } from "./pairing/PairingScreen";
 import { ChatPanel } from "./chat/ChatPanel";
 import { TerminalsPanel } from "./terminals/TerminalsPanel";
@@ -71,30 +71,26 @@ export default function App() {
   // failure (IDE not up yet) keeps the stored session for a later retry.
   useEffect(() => {
     let cancelled = false;
-    const saved = BridgeClient.restore();
-    if (!saved) {
-      setRestoring(false);
-      return;
-    }
-    saved
-      .connect()
-      .then(
-        () =>
-          saved.resume().then(
-            () => {
-              if (!cancelled) setClient(saved);
-            },
-            () => {
-              saved.disconnect();
-            },
-          ),
-        () => {
-          /* IDE unreachable — keep stored session, show pairing */
-        },
-      )
-      .finally(() => {
-        if (!cancelled) setRestoring(false);
-      });
+    (async () => {
+      const saved = await BridgeClient.restore();
+      if (!saved) return;
+      try {
+        await saved.connect();
+      } catch {
+        /* IDE unreachable — keep stored session, show pairing */
+        return;
+      }
+      try {
+        await saved.resume();
+        if (!cancelled) setClient(saved);
+      } catch (err) {
+        // Only an explicit server rejection invalidates the pairing; a
+        // transient error keeps the stored session for the next launch.
+        if (isSessionRejected(err)) saved.disconnect();
+      }
+    })().finally(() => {
+      if (!cancelled) setRestoring(false);
+    });
     return () => {
       cancelled = true;
     };

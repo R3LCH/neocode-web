@@ -24,6 +24,10 @@ export function TerminalsPanel({ client }: Props) {
     loadPrefs().terminalWrap ? "wrap" : "grid",
   );
   const [pendingKeys, setPendingKeys] = useState("");
+  const [kbdFocused, setKbdFocused] = useState(false);
+  // Height of the on-screen keyboard (layout viewport minus visual viewport),
+  // so the floating status bar can sit right above it.
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const pendingRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kbdRef = useRef<HTMLTextAreaElement | null>(null);
@@ -42,6 +46,24 @@ export function TerminalsPanel({ client }: Props) {
       if (event === "editor.grid") setGrid(data as EditorGridEvent);
     });
   }, [client, refreshTerminals]);
+
+  // Track how much of the window the soft keyboard covers (visualViewport
+  // shrinks; fixed elements keep layout-viewport coordinates).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () =>
+      setKeyboardInset(
+        Math.max(0, window.innerHeight - vv.height - vv.offsetTop),
+      );
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
 
   const viewTerminal = async (id: number) => {
     try {
@@ -90,22 +112,41 @@ export function TerminalsPanel({ client }: Props) {
     }, 400);
   };
 
+  // Backspace first eats locally-buffered (not yet flushed) chars; only when
+  // the buffer is empty does it go to nvim. Sending <BS> immediately while
+  // chars sat in the 400ms batch would arrive out of order.
+  const sendBackspace = () => {
+    if (pendingRef.current) {
+      pendingRef.current = pendingRef.current.slice(0, -1);
+      setPendingKeys(pendingRef.current);
+      return;
+    }
+    flushKeys("<BS>");
+  };
+
+  const sendEnter = () => {
+    flushKeys(pendingRef.current + "\n");
+    pendingRef.current = "";
+    setPendingKeys("");
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     // The hidden textarea sits inside the panel div and both bind this
     // handler — without stopPropagation every key bubbles up and is sent
     // twice (Backspace showed up as ^?^?).
     e.stopPropagation();
-    if (e.key.length === 1) {
+    // Android soft keyboards report "Unidentified"/229 here and deliver the
+    // real text through input events — let onKbdInput handle those.
+    if (e.key === "Unidentified" || e.key === "Process") return;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       pushKey(e.key);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      flushKeys(pendingRef.current + "\n");
-      pendingRef.current = "";
-      setPendingKeys("");
+      sendEnter();
     } else if (e.key === "Backspace") {
       e.preventDefault();
-      flushKeys("<BS>");
+      sendBackspace();
     } else if (e.key === "Delete") {
       e.preventDefault();
       flushKeys("<Del>");
@@ -119,17 +160,37 @@ export function TerminalsPanel({ client }: Props) {
     else if (e.key === "ArrowRight") flushKeys("<Right>");
   };
 
-  // Mobile keyboards often deliver text via input events instead of key events.
+  // Mobile keyboards deliver text via input events instead of key events, and
+  // backspace on an empty field often produces nothing at all. Keep a sentinel
+  // char in the textarea: deleting it means Backspace; anything after it is
+  // typed text. Control chars (Android's raw DEL byte showed up as ^?) are
+  // never forwarded literally.
+  const KBD_SENTINEL = " ";
+  const resetKbd = (el: HTMLTextAreaElement) => {
+    el.value = KBD_SENTINEL;
+    el.setSelectionRange(el.value.length, el.value.length);
+  };
   const onKbdInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
-    const value = e.currentTarget.value;
-    if (value) {
-      for (const ch of value) pushKey(ch);
-      e.currentTarget.value = "";
+    const el = e.currentTarget;
+    const value = el.value;
+    if (value.length < KBD_SENTINEL.length) {
+      sendBackspace();
+    } else {
+      const typed = value.startsWith(KBD_SENTINEL)
+        ? value.slice(KBD_SENTINEL.length)
+        : value;
+      for (const ch of typed) {
+        const code = ch.charCodeAt(0);
+        if (ch === "\n") sendEnter();
+        else if (code === 0x7f || code === 0x08) sendBackspace();
+        else if (code >= 0x20) pushKey(ch);
+      }
     }
+    resetKbd(el);
   };
 
-  const wrapText = () => {
-    if (!grid) return "";
+  const gridLines = () => {
+    if (!grid) return [];
     const lines: string[] = [];
     for (let r = 0; r < grid.height; r++) {
       let line = "";
@@ -139,11 +200,39 @@ export function TerminalsPanel({ client }: Props) {
       }
       lines.push(line.replace(/\s+$/, ""));
     }
-    const cursorLine = grid.cursor_row;
-    const before = lines.slice(0, cursorLine).join("\n");
-    const at = lines[cursorLine] ?? "";
-    const after = lines.slice(cursorLine + 1).join("\n");
-    return `${before}\n▌${at}\n${after}`;
+    return lines;
+  };
+
+  // Wrapped view with the cursor rendered as an inverse cell at its actual
+  // (row, col) — a marker at the start of the line hid the real position.
+  const wrapView = () => {
+    if (!grid) return null;
+    const lines = gridLines();
+    const row = Math.min(grid.cursor_row, lines.length - 1);
+    let at = lines[row] ?? "";
+    const col = Math.max(0, grid.cursor_col);
+    if (at.length <= col) at = at.padEnd(col + 1, " ");
+    const before = lines.slice(0, row).join("\n");
+    const after = lines.slice(row + 1).join("\n");
+    return (
+      <pre className="wrap-view">
+        {before}
+        {row > 0 ? "\n" : ""}
+        {at.slice(0, col)}
+        <span className="wrap-cursor">{at[col] ?? " "}</span>
+        {at.slice(col + 1)}
+        {"\n"}
+        {after}
+      </pre>
+    );
+  };
+
+  // Bottom rows of the nvim screen (statusline + cmdline/messages) — floated
+  // above the soft keyboard so you can see what you're typing in command mode.
+  const statusLines = () => {
+    if (!grid) return "";
+    const lines = gridLines();
+    return lines.slice(Math.max(0, lines.length - 2)).join("\n");
   };
 
   return (
@@ -182,6 +271,17 @@ export function TerminalsPanel({ client }: Props) {
         <span className="hint keys-hint">
           {pendingKeys ? `keys: ${pendingKeys}` : "zi wrap · zo grid"}
         </span>
+        {/* onMouseDown preventDefault keeps focus (and the soft keyboard) on
+            the key sink while tapping these. */}
+        <button
+          type="button"
+          className="chip"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => flushKeys("<Esc>")}
+          title="Back to normal mode"
+        >
+          Esc
+        </button>
         <button
           type="button"
           className={`chip${viewMode === "wrap" ? " active" : ""}`}
@@ -201,7 +301,7 @@ export function TerminalsPanel({ client }: Props) {
       {!grid ? (
         <p className="hint">Waiting for terminal sync…</p>
       ) : viewMode === "wrap" ? (
-        <pre className="wrap-view">{wrapText()}</pre>
+        wrapView()
       ) : (
         <div className="grid-scroll">
           <div
@@ -229,6 +329,26 @@ export function TerminalsPanel({ client }: Props) {
         </div>
       )}
 
+      {/* Floating nvim status/command line pinned above the soft keyboard so
+          command-mode typing is visible while the keyboard covers the view. */}
+      {kbdFocused && grid && (
+        <div className="kbd-statusbar" style={{ bottom: keyboardInset }}>
+          <div className="kbd-statusbar-mode">
+            <span>{grid.mode_text || "…"}</span>
+            {pendingKeys && <span className="kbd-pending">{pendingKeys}</span>}
+            <button
+              type="button"
+              className="chip"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => flushKeys("<Esc>")}
+            >
+              Esc
+            </button>
+          </div>
+          <pre className="kbd-statusbar-lines">{statusLines()}</pre>
+        </div>
+      )}
+
       {/* Off-screen sink that opens the soft keyboard and forwards keystrokes. */}
       <textarea
         ref={kbdRef}
@@ -238,6 +358,11 @@ export function TerminalsPanel({ client }: Props) {
         spellCheck={false}
         onKeyDown={onKeyDown}
         onInput={onKbdInput}
+        onFocus={(e) => {
+          resetKbd(e.currentTarget);
+          setKbdFocused(true);
+        }}
+        onBlur={() => setKbdFocused(false)}
       />
     </div>
   );

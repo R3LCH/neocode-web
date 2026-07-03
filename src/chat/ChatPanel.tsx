@@ -5,9 +5,12 @@ import type {
   BridgeSettings,
   ChangedFileDiff,
   ChatThreadSnapshot,
+  EditorGridEvent,
   RevertFileResult,
+  TerminalSnapshot,
 } from "@protocol/schema";
 import { threadStateColor, THREAD_STATES } from "../notifications";
+import { GridWrapView } from "../terminals/GridWrapView";
 
 type Props = { client: BridgeClient };
 
@@ -54,8 +57,14 @@ export function ChatPanel({ client }: Props) {
   const [diffs, setDiffs] = useState<ChangedFileDiff[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
   const [revertResults, setRevertResults] = useState<Record<string, RevertFileResult>>({});
+  const [shellGrid, setShellGrid] = useState<EditorGridEvent | null>(null);
+  const [shellProbe, setShellProbe] = useState(0);
+  const shellIdRef = useRef<number | null>(null);
+  const shellViewRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const claudeShell = settings?.provider_id === "claude-code";
 
   useEffect(() => {
     client
@@ -79,6 +88,56 @@ export function ChatPanel({ client }: Props) {
       if (event === "settings.changed") setSettings(data as BridgeSettings);
     });
   }, [client]);
+
+  // Claude Code runs as an interactive shell on the desktop — mirror its live
+  // screen here. The shell terminal spawns lazily (on provider select in the
+  // IDE or on the first chat.send), so poll terminals.list until its chip
+  // appears, then stream that terminal's grid.
+  useEffect(() => {
+    if (!claudeShell) {
+      shellIdRef.current = null;
+      setShellGrid(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const locate = async () => {
+      if (cancelled) return;
+      try {
+        const terms = await client.call<TerminalSnapshot[]>("terminals.list");
+        const shell = terms.find((t) => t.kind === "claude");
+        if (cancelled) return;
+        if (shell) {
+          shellIdRef.current = shell.id;
+          await client.call("terminals.view", { id: shell.id });
+          await client.call("editor.subscribe");
+          return;
+        }
+      } catch {
+        /* bridge busy — retry below */
+      }
+      shellIdRef.current = null;
+      timer = setTimeout(() => void locate(), 2000);
+    };
+    void locate();
+    const off = client.on((event, data) => {
+      if (event === "editor.grid") {
+        const g = data as EditorGridEvent;
+        if (g.terminal_id === shellIdRef.current) setShellGrid(g);
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      off();
+    };
+  }, [client, claudeShell, shellProbe]);
+
+  // The prompt sits at the bottom of the shell screen — keep it in view.
+  useEffect(() => {
+    const el = shellViewRef.current?.querySelector(".wrap-view");
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [shellGrid]);
 
   // Pill bar — mirrors the IDE AI overlay: mode / provider / model / env / branch.
   const applySettings = async (patch: Record<string, unknown>) => {
@@ -167,6 +226,9 @@ export function ChatPanel({ client }: Props) {
       });
       setQuery("");
       setAttachments([]);
+      // First send spawns the desktop shell — restart the locate loop so the
+      // mirror picks it up (also recovers after a shell restart).
+      if (claudeShell) setShellProbe((p) => p + 1);
       const t = (await client.call("chat.threads")) as ChatThreadSnapshot[];
       setThreads(t);
     } finally {
@@ -350,14 +412,24 @@ export function ChatPanel({ client }: Props) {
         </div>
       )}
 
-      {settings?.provider_id === "claude-code" && (
+      {claudeShell && (
         <p className="hint shell-hint">
-          Claude Code runs as an interactive shell on the desktop. Messages you
-          send here are typed straight into it — watch the session in the
-          Terminals tab (chip named “Claude Code Shell”).
+          Claude Code runs as an interactive shell on the desktop — its screen
+          is mirrored below. Messages you send are typed straight into it.
         </p>
       )}
 
+      {claudeShell ? (
+        <div className="messages" ref={shellViewRef}>
+          {shellGrid ? (
+            <GridWrapView grid={shellGrid} />
+          ) : (
+            <p className="hint">
+              Waiting for the Claude Code shell… Send a message to start it.
+            </p>
+          )}
+        </div>
+      ) : (
       <div className="messages">
         {active?.messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
@@ -381,6 +453,7 @@ export function ChatPanel({ client }: Props) {
         )}
         <div ref={messagesEndRef} />
       </div>
+      )}
 
       <div className="composer">
         {settings && (

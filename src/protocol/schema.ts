@@ -78,7 +78,19 @@ export type ChatThreadSnapshot = {
     role: string;
     content: string;
     status?: string;
+    changed_files?: string[];
   }>;
+};
+
+/** One file's unified diff from `changes.list`. */
+export type ChangedFileDiff = { path: string; patch: string };
+
+/** Per-file outcome of `changes.revert`. */
+export type RevertFileResult = {
+  path: string;
+  applied: number;
+  written: boolean;
+  failed: Array<{ line: number; reason: string }>;
 };
 
 export type IdLabel = { id: string; label: string };

@@ -3,7 +3,9 @@ import type { BridgeClient } from "../bridge/client";
 import type {
   ApprovalSnapshot,
   BridgeSettings,
+  ChangedFileDiff,
   ChatThreadSnapshot,
+  RevertFileResult,
 } from "@protocol/schema";
 import { threadStateColor, THREAD_STATES } from "../notifications";
 
@@ -48,6 +50,10 @@ export function ChatPanel({ client }: Props) {
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [attaching, setAttaching] = useState(false);
+  const [diffMessageId, setDiffMessageId] = useState<string | null>(null);
+  const [diffs, setDiffs] = useState<ChangedFileDiff[]>([]);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [revertResults, setRevertResults] = useState<Record<string, RevertFileResult>>({});
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -202,6 +208,51 @@ export function ChatPanel({ client }: Props) {
     await callSafe(approved ? "chat.approve" : "chat.deny", { id });
   };
 
+  const openDiffs = async (messageId: string) => {
+    setDiffMessageId(messageId);
+    setDiffs([]);
+    setRevertResults({});
+    setDiffLoading(true);
+    try {
+      const res = (await callSafe("changes.list", {
+        thread_id: active?.id,
+        message_id: messageId,
+      })) as { files?: ChangedFileDiff[] } | null;
+      setDiffs(res?.files ?? []);
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  const revertChanges = async (messageId: string, path?: string) => {
+    const what = path ? path.split(/[\\/]/).pop() : "ALL files from this turn";
+    if (!window.confirm(`Revert ${what}? This rewrites the file(s) on the desktop.`)) return;
+    const res = (await callSafe("changes.revert", {
+      thread_id: active?.id,
+      message_id: messageId,
+      ...(path ? { path } : {}),
+    })) as { files?: RevertFileResult[] } | null;
+    if (res?.files) {
+      setRevertResults((prev) => {
+        const next = { ...prev };
+        for (const f of res.files!) next[f.path] = f;
+        return next;
+      });
+    }
+  };
+
+  const diffLine = (line: string, i: number) => {
+    let cls = "diff-ctx";
+    if (line.startsWith("+") && !line.startsWith("+++")) cls = "diff-add";
+    else if (line.startsWith("-") && !line.startsWith("---")) cls = "diff-del";
+    else if (line.startsWith("@@")) cls = "diff-hunk";
+    return (
+      <div key={i} className={`diff-line ${cls}`}>
+        {line || " "}
+      </div>
+    );
+  };
+
   const statusDot = (status: string) => (
     <span
       className="status-dot"
@@ -311,6 +362,16 @@ export function ChatPanel({ client }: Props) {
         {active?.messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
             <pre>{m.content}</pre>
+            {m.role === "agent" && (m.changed_files?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                className="changes-chip"
+                onClick={() => void openDiffs(m.id)}
+              >
+                📝 {m.changed_files!.length} file
+                {m.changed_files!.length === 1 ? "" : "s"} changed — review
+              </button>
+            )}
           </div>
         ))}
         {streaming && (
@@ -472,6 +533,66 @@ export function ChatPanel({ client }: Props) {
           )}
         </div>
       </div>
+
+      {diffMessageId && (
+        <div className="diff-sheet" role="dialog" aria-label="Changed files">
+          <header className="diff-sheet-header">
+            <strong>Changed files</strong>
+            <div className="row">
+              {diffs.length > 0 && (
+                <button
+                  type="button"
+                  className="ghost danger"
+                  onClick={() => void revertChanges(diffMessageId)}
+                >
+                  Revert all
+                </button>
+              )}
+              <button type="button" className="ghost" onClick={() => setDiffMessageId(null)}>
+                Close
+              </button>
+            </div>
+          </header>
+          <div className="diff-sheet-body">
+            {diffLoading && <p className="hint">Loading diffs…</p>}
+            {!diffLoading && diffs.length === 0 && (
+              <p className="hint">
+                No revert journal for this turn (changes may be too old, made
+                outside the file tools, or in binary files).
+              </p>
+            )}
+            {diffs.map((f) => {
+              const result = revertResults[f.path];
+              return (
+                <div key={f.path} className="diff-file">
+                  <div className="diff-file-header">
+                    <span className="diff-file-path">{f.path}</span>
+                    <button
+                      type="button"
+                      className="ghost danger"
+                      onClick={() => void revertChanges(diffMessageId, f.path)}
+                    >
+                      Revert
+                    </button>
+                  </div>
+                  {result && (
+                    <p className={result.failed.length > 0 ? "error" : "hint revert-ok"}>
+                      {result.written
+                        ? `Reverted (${result.applied} hunk${result.applied === 1 ? "" : "s"}).`
+                        : "Nothing reverted."}
+                      {result.failed.length > 0 &&
+                        ` ${result.failed.length} hunk(s) failed — your edits diverged: ${result.failed
+                          .map((h) => `line ${h.line}: ${h.reason}`)
+                          .join("; ")}`}
+                    </p>
+                  )}
+                  <div className="diff-view">{f.patch.split("\n").map(diffLine)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

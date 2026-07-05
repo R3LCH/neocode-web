@@ -143,8 +143,10 @@ export function ChatPanel({ client }: Props) {
 
   // Mirror the desktop composer: type into the shell as you type here, so
   // Claude Code's interactive UI (the "/" command menu, prompts) reacts live.
-  // Backspaces over the differing tail, then types the new suffix — the same
-  // requests stay ordered because the bridge handles them sequentially.
+  // Backspaces over the differing tail as ONE batched key run (the bridge
+  // passes named-key runs through) then types the new suffix — one RPC per
+  // deleted character flooded the bridge and froze both apps when a long
+  // message was cleared.
   const forwardShellText = (next: string) => {
     if (shellIdRef.current === null) return;
     const old = shellTypedRef.current;
@@ -154,8 +156,9 @@ export function ChatPanel({ client }: Props) {
       common++;
     }
     shellTypedRef.current = next;
-    for (let i = 0; i < old.length - common; i++) {
-      client.call("editor.key", { keys: "<BS>" }).catch(() => undefined);
+    const deleted = old.length - common;
+    if (deleted > 0) {
+      client.call("editor.key", { keys: "<BS>".repeat(deleted) }).catch(() => undefined);
     }
     const suffix = next.slice(common);
     if (suffix) client.call("editor.key", { keys: suffix }).catch(() => undefined);
